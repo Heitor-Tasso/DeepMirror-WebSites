@@ -15,6 +15,9 @@ env/
 downloads/*
 !downloads/.gitkeep
 
+# IA
+.claude/
+
 # IDE
 .vscode/
 .idea/
