@@ -9,4 +9,9 @@ dependencies = [
     "flask>=3.1.2",
     "playwright>=1.57.0",
     "requests>=2.32.5",
+    "gunicorn>=21.2.0",
+    "urllib3>=2.1.0",
 ]
+
+[tool.setuptools]
+packages = ["website_downloader"]

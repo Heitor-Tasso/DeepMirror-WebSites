@@ -7,6 +7,7 @@ import threading
 import time
 import glob
 from downloader import WebsiteDownloader, zip_directory, get_site_name
+from website_downloader.clean import clean_site
 
 app = Flask(__name__)
 
@@ -108,16 +109,23 @@ def process_download(session_id, url):
         
         # Process the site
         success = downloader.process()
-        
+
         if not success:
             q.put("❌ Falha no download")
             download_results[session_id] = {'status': 'error', 'error': 'Failed to download site'}
             return
-        
+
+        # FASE 4: Clean site (create raw/ and clean/ versions)
+        q.put("🧹 Otimizando para consumo por IA...")
+        try:
+            clean_site(download_dir, log_callback)
+        except Exception as e:
+            q.put(f"⚠️ Aviso: Falha na limpeza (continuando): {str(e)}")
+
         # Generate filename from site name
         site_name = get_site_name(url)
         zip_filename = f"{site_name}.zip"
-        
+
         q.put("📦 Criando arquivo ZIP...")
         zip_directory(download_dir, zip_path)
         
@@ -217,7 +225,8 @@ def download_file(session_id):
 
 if __name__ == '__main__':
     # Development server
-    app.run(debug=True, port=5001, threaded=True)
+    # use_reloader=False evita cache de módulos Python
+    app.run(debug=True, port=5001, threaded=True, use_reloader=False)
 else:
     # Production server (Gunicorn)
     pass
