@@ -25,7 +25,7 @@ function startDownload() {
     .then(data => {
         if (data.error) {
             showError(data.error);
-            addLog('❌ ' + data.error);
+            addLog('' + data.error);
             setLoading(false);
             return;
         }
@@ -36,7 +36,7 @@ function startDownload() {
     .catch(error => {
         const errorMsg = 'Erro de conexão: ' + error.message;
         showError(errorMsg);
-        addLog('❌ ' + errorMsg);
+        addLog('' + errorMsg);
         setLoading(false);
     });
 }
@@ -58,7 +58,7 @@ function connectSSE(sessionId) {
             setLoading(false);
         } else {
             showError('Download falhou. Verifique os logs para mais detalhes.');
-            addLog('❌ Download falhou');
+            addLog('Download falhou');
             setLoading(false);
         }
     });
@@ -66,7 +66,7 @@ function connectSSE(sessionId) {
     eventSource.onerror = function() {
         eventSource.close();
         showError('Conexão com o servidor foi perdida.');
-        addLog('❌ Erro de conexão SSE');
+        addLog('Erro de conexão SSE');
         setLoading(false);
     };
 }
@@ -140,7 +140,7 @@ function copyLogs() {
     navigator.clipboard.writeText(logsText).then(() => {
         const btn = document.getElementById('copyLogsBtn');
         const originalText = btn.textContent;
-        btn.textContent = '✓ Copiado!';
+        btn.textContent = '- Copiado!';
         btn.classList.add('copied');
 
         setTimeout(() => {

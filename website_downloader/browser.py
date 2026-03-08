@@ -5,11 +5,8 @@ import html
 from playwright.sync_api import sync_playwright
 from . import (
     BROWSER_TIMEOUT, BROWSER_ARGS, USER_AGENT,
-    MAX_SCROLL_ITERATIONS, SMOOTH_SCROLL_LIBS,
-    INTERACTION_WAIT, EXTRA_WAIT_MIN, EXTRA_WAIT_MAX
+    MAX_SCROLL_ITERATIONS, INTERACTION_WAIT
 )
-import random
-
 
 class BrowserController:
     def __init__(self, log_callback):
@@ -22,7 +19,7 @@ class BrowserController:
 
     def launch(self):
         """Launch browser and create page"""
-        self.log("🚀 Iniciando navegador...")
+        self.log("Iniciando navegador...")
         self.playwright = sync_playwright().start()
 
         self.browser = self.playwright.chromium.launch(
@@ -41,15 +38,15 @@ class BrowserController:
 
     def goto(self, url):
         """Navigate to URL"""
-        self.log(f"🌐 Carregando {url}...")
+        self.log(f"Carregando {url}...")
         try:
             self.page.goto(url, wait_until='load', timeout=BROWSER_TIMEOUT)
-            self.log("✓ Página carregada (load)")
+            self.log("- Página carregada (load)")
             self.page.wait_for_timeout(3000)
-            self.log("✓ Recursos adicionais carregados")
+            self.log("- Recursos adicionais carregados")
         except Exception as e:
-            self.log(f"⚠️ Aviso de carregamento: {str(e)[:100]}")
-            self.log("⚠️ Tentando continuar mesmo assim...")
+            self.log(f"Aviso de carregamento: {str(e)[:100]}")
+            self.log("Tentando continuar mesmo assim...")
 
         self.base_url = self.page.url
         self.page.wait_for_timeout(2000)
@@ -62,7 +59,7 @@ class BrowserController:
         # Check for srcdoc iframes
         srcdoc_iframe = self.page.query_selector('iframe[srcdoc]')
         if srcdoc_iframe:
-            self.log("🔍 Detectado iframe com srcdoc - extraindo conteúdo real...")
+            self.log("Detectado iframe com srcdoc - extraindo conteúdo real...")
             srcdoc = srcdoc_iframe.get_attribute('srcdoc')
             if srcdoc:
                 decoded_content = html.unescape(srcdoc)
@@ -87,7 +84,7 @@ class BrowserController:
                 for frame in frames:
                     if frame != self.page.main_frame and frame.url and frame.url != 'about:blank':
                         try:
-                            self.log(f"🔍 Detectado iframe de preview - extraindo de {frame.url[:50]}...")
+                            self.log(f"Detectado iframe de preview - extraindo de {frame.url[:50]}...")
                             content = frame.content()
                             if len(content) > 500:
                                 self.base_url = frame.url
@@ -103,7 +100,7 @@ class BrowserController:
                     if frame_url == 'about:srcdoc':
                         content = frame.content()
                         if len(content) > 1000:
-                            self.log("🔍 Detectado iframe srcdoc via frame - extraindo conteúdo...")
+                            self.log("Detectado iframe srcdoc via frame - extraindo conteúdo...")
                             return content, True
                 except:
                     pass
@@ -121,7 +118,7 @@ class BrowserController:
                         try:
                             content = frame.content()
                             if len(content) > len(main_content) * 0.3:
-                                self.log("🔍 Detectado wrapper com iframe - usando conteúdo do frame...")
+                                self.log("Detectado wrapper com iframe - usando conteúdo do frame...")
                                 if frame.url and frame.url not in ['about:blank', 'about:srcdoc']:
                                     self.base_url = frame.url
                                 return content, True
@@ -132,7 +129,7 @@ class BrowserController:
 
     def scroll_page(self):
         """Scroll the page to trigger lazy loading"""
-        self.log("📜 Rolando página para carregar conteúdo lazy...")
+        self.log("Rolando página para carregar conteúdo lazy...")
         try:
             # Disable smooth scroll libraries
             self.page.evaluate("""
@@ -179,7 +176,7 @@ class BrowserController:
             """)
 
             if scroll_container:
-                self.log(f"🔍 Detectado container de scroll customizado: {scroll_container}")
+                self.log(f"Detectado container de scroll customizado: {scroll_container}")
 
             total_height = self.page.evaluate("Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)")
             viewport_height = self.page.evaluate("window.innerHeight")
@@ -216,11 +213,11 @@ class BrowserController:
             """)
             self.page.wait_for_timeout(1000)
         except Exception as e:
-            self.log(f"⚠️ Erro no scroll: {e}")
+            self.log(f"Erro no scroll: {e}")
 
     def simulate_interactions(self):
         """Simulate mouse movements and hovers to trigger lazy loading"""
-        self.log("🖱️ Simulando interações para carregar recursos dinâmicos...")
+        self.log("Simulando interações para carregar recursos dinâmicos...")
 
         try:
             viewport_height = self.page.evaluate("window.innerHeight")
@@ -241,20 +238,20 @@ class BrowserController:
                 except:
                     pass
 
-            self.log("   ✅ Interações simuladas")
+            self.log("   Interações simuladas")
         except Exception as e:
-            self.log(f"⚠️ Erro ao simular interações: {e}")
+            self.log(f"Erro ao simular interações: {e}")
 
     def interact_with_webgl_canvases(self):
         """Simulate focused interactions on WebGL canvas elements to trigger texture loading"""
-        self.log("🎨 Detectando e interagindo com canvas WebGL...")
+        self.log("Detectando e interagindo com canvas WebGL...")
 
         try:
             # Find all canvas elements
             canvases = self.page.query_selector_all('canvas')
 
             if not canvases:
-                self.log("   ℹ️ Nenhum canvas encontrado")
+                self.log("   Nenhum canvas encontrado")
                 return
 
             webgl_canvases = []
@@ -268,10 +265,10 @@ class BrowserController:
                     pass
 
             if not webgl_canvases:
-                self.log("   ℹ️ Nenhum canvas WebGL significativo encontrado")
+                self.log("   Nenhum canvas WebGL significativo encontrado")
                 return
 
-            self.log(f"   🎯 Encontrados {len(webgl_canvases)} canvas para interação")
+            self.log(f"   Encontrados {len(webgl_canvases)} canvas para interação")
 
             # First pass: hover and center interaction
             for canvas, box in webgl_canvases:
@@ -303,7 +300,7 @@ class BrowserController:
                 except:
                     pass
 
-            self.log("   ✅ Primeiro pass de interações concluído")
+            self.log("   Primeiro pass de interações concluído")
 
             # Wait for initial assets to load
             self.page.wait_for_timeout(5000)
@@ -318,15 +315,15 @@ class BrowserController:
                 except:
                     pass
 
-            self.log("   ✅ Segundo pass de interações concluído")
+            self.log("   Segundo pass de interações concluído")
 
             # Extended wait for larger textures and async loads
             self.page.wait_for_timeout(8000)
 
-            self.log("   ⏳ Aguardando carregamento assíncrono de texturas...")
+            self.log("   Aguardando carregamento assíncrono de texturas...")
 
         except Exception as e:
-            self.log(f"⚠️ Erro ao interagir com canvas: {e}")
+            self.log(f"Erro ao interagir com canvas: {e}")
 
     def wait_for_css_injection(self, timeout=10000):
         """
@@ -362,11 +359,11 @@ class BrowserController:
                 }
             """, timeout=timeout)
 
-            self.log("   ✅ CSS-in-JS detectado e carregado")
+            self.log("   CSS-in-JS detectado e carregado")
             # Extra wait for fonts and final rendering
             self.page.wait_for_timeout(2000)
         except:
-            self.log("   ⚠️ Timeout aguardando CSS-in-JS (pode não usar styled-components)")
+            self.log("   Timeout aguardando CSS-in-JS (pode não usar styled-components)")
 
     def wait_for_network_idle(self, timeout=30000, idle_time=3000):
         """
@@ -377,7 +374,7 @@ class BrowserController:
             timeout: Maximum time to wait (default 30s)
             idle_time: Time of silence to consider network idle (default 3s)
         """
-        self.log("⏳ Aguardando recursos adicionais (monitorando rede)...")
+        self.log("Aguardando recursos adicionais (monitorando rede)...")
 
         import time
         start_time = time.time() * 1000  # Convert to milliseconds
@@ -403,12 +400,12 @@ class BrowserController:
 
             # Check if we've been idle long enough
             if idle_duration >= idle_time:
-                self.log(f"   ✅ Rede silenciosa por {idle_duration/1000:.1f}s ({request_count} requests capturados)")
+                self.log(f"   Rede silenciosa por {idle_duration/1000:.1f}s ({request_count} requests capturados)")
                 break
 
             # Check timeout
             if elapsed >= timeout:
-                self.log(f"   ⏱️ Timeout atingido ({timeout/1000:.0f}s, {request_count} requests capturados)")
+                self.log(f"   Timeout atingido ({timeout/1000:.0f}s, {request_count} requests capturados)")
                 break
 
             # Small sleep to avoid busy loop

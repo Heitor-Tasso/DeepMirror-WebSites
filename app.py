@@ -5,7 +5,6 @@ import uuid
 import queue
 import threading
 import time
-import glob
 from downloader import WebsiteDownloader, zip_directory, get_site_name
 from website_downloader.clean import clean_site
 
@@ -25,9 +24,9 @@ def cleanup_downloads_folder():
                 os.remove(item_path)
             elif os.path.isdir(item_path):
                 shutil.rmtree(item_path)
-        print(f"🧹 Pasta downloads limpa com sucesso")
+        print(f"Pasta downloads limpa com sucesso")
     except Exception as e:
-        print(f"⚠️ Erro ao limpar pasta downloads: {e}")
+        print(f"Erro ao limpar pasta downloads: {e}")
 
 # Cleanup downloads folder on startup
 cleanup_downloads_folder()
@@ -52,7 +51,7 @@ def cleanup_abandoned_sessions():
                     if zip_path and os.path.exists(zip_path):
                         try:
                             os.remove(zip_path)
-                            print(f"🗑️ Removido arquivo abandonado: {os.path.basename(zip_path)}")
+                            print(f"Removido arquivo abandonado: {os.path.basename(zip_path)}")
                         except:
                             pass
                     sessions_to_remove.append(session_id)
@@ -111,22 +110,22 @@ def process_download(session_id, url):
         success = downloader.process()
 
         if not success:
-            q.put("❌ Falha no download")
+            q.put("Falha no download")
             download_results[session_id] = {'status': 'error', 'error': 'Failed to download site'}
             return
 
         # FASE 4: Clean site (create raw/ and clean/ versions)
-        q.put("🧹 Otimizando para consumo por IA...")
+        q.put("Otimizando para consumo por IA...")
         try:
             clean_site(download_dir, log_callback)
         except Exception as e:
-            q.put(f"⚠️ Aviso: Falha na limpeza (continuando): {str(e)}")
+            q.put(f"Aviso: Falha na limpeza (continuando): {str(e)}")
 
         # Generate filename from site name
         site_name = get_site_name(url)
         zip_filename = f"{site_name}.zip"
 
-        q.put("📦 Criando arquivo ZIP...")
+        q.put("Criando arquivo ZIP...")
         zip_directory(download_dir, zip_path)
         
         # Cleanup raw files
@@ -141,7 +140,7 @@ def process_download(session_id, url):
         }
         
     except Exception as e:
-        q.put(f"❌ Erro: {str(e)}")
+        q.put(f"Erro: {str(e)}")
         download_results[session_id] = {'status': 'error', 'error': str(e)}
         
         # Clean up any leftover files
@@ -158,7 +157,7 @@ def stream(session_id):
     """SSE endpoint for log streaming"""
     def generate():
         if session_id not in message_queues:
-            yield f"data: ❌ Sessão não encontrada\n\n"
+            yield f"data: Sessão não encontrada\n\n"
             return
         
         q = message_queues[session_id]
@@ -206,13 +205,13 @@ def download_file(session_id):
             try:
                 if os.path.exists(zip_path):
                     os.remove(zip_path)
-                    print(f"🗑️ Arquivo ZIP removido: {filename}")
+                    print(f"Arquivo ZIP removido: {filename}")
                 if session_id in message_queues:
                     del message_queues[session_id]
                 if session_id in download_results:
                     del download_results[session_id]
             except Exception as e:
-                print(f"⚠️ Erro ao limpar arquivo: {e}")
+                print(f"Erro ao limpar arquivo: {e}")
         
         cleanup_thread = threading.Thread(target=cleanup)
         cleanup_thread.daemon = True
@@ -220,7 +219,7 @@ def download_file(session_id):
         
         return response
     except Exception as e:
-        print(f"❌ Erro ao enviar arquivo: {e}")
+        print(f"Erro ao enviar arquivo: {e}")
         return "Error sending file", 500
 
 if __name__ == '__main__':

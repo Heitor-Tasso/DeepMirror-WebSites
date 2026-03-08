@@ -1,4 +1,4 @@
-# 🪞 DeepMirror-WebSites
+# DeepMirror-WebSites
 
 **Download de sites de alta fidelidade**. Capture experiências complexas (WebGL, Three.js, Rive, SPAs) através da gravação de tráfego de rede em tempo de execução (Runtime Network Recording) para AI Design, possibilitando replicar o estilo para outros tipos de sites.
 
@@ -62,14 +62,7 @@ Manter portfólios de clientes acessíveis:
 git clone https://github.com/seu-usuario/DeepMirror-WebSites.git
 cd DeepMirror-WebSites
 
-# Instalar dependências
-uv sync
-
-# Instalar Playwright browsers
-uv run playwright install chromium
-
-# Rodar aplicação
-uv run python app.py
+bash setup.sh
 ```
 
 Acesse: `http://localhost:5001`
@@ -105,6 +98,7 @@ DeepMirror-WebSites/
 ├── downloads/               # Temporary downloads (auto-cleanup)
 ├── CHANGELOG.md             # Detailed change history
 ├── FUTURE.md                # Known issues & roadmap
+├── LOGS.md                  # Known logs of tested websites
 └── README.md                # This file
 ```
 
@@ -149,22 +143,6 @@ SKIP_DOMAINS = [
 ]
 ```
 
-## 📊 Casos de Teste Validados
-
-| Site | Recursos | Tamanho | WebGL | Rive | Animações | Status |
-|------|----------|---------|-------|------|-----------|--------|
-| landonorris.com | 264 | 15MB | ✅ | ✅ | ⚠️ (~95%) | ✅ Funcionando |
-| pocketchangethe.world | - | - | - | - | - | ❌ Bug conhecido |
-
-⚠️ = Canvas hero não renderiza (bug conhecido, veja [FUTURE.md](FUTURE.md))
-
-## 🐛 Bugs Conhecidos
-
-1. **Canvas hero não renderiza** (landonorris.com): Investigação pendente
-2. **Erro "Is a directory"** (pocketchangethe.world): Path com `/` no final
-
-Veja lista completa em [FUTURE.md](FUTURE.md)
-
 ## 📝 Notas Técnicas
 
 ### Por que "Runtime Network Recording"?
@@ -180,12 +158,12 @@ Resultado: Sites complexos com WebGL/Three.js/Rive funcionam offline com alta fi
 
 ### Frameworks Suportados
 
-- ✅ **Next.js**: Hydration preservado, rotas estáticas funcionam
-- ✅ **Nuxt**: SSR assets capturados, `__NUXT__` state mantido
-- ✅ **Gatsby**: Build estático funciona perfeitamente
-- ✅ **React Router**: Rotas client-side requerem servidor (limitação conhecida)
-- ✅ **WebGL/Three.js**: Texturas, modelos, shaders, WASM (Draco) capturados
-- ✅ **Rive**: Arquivos `.riv` e canvas interativos funcionam
+- **Next.js**: Hydration preservado, rotas estáticas funcionam
+- **Nuxt**: SSR assets capturados, `__NUXT__` state mantido
+- **Gatsby**: Build estático funciona perfeitamente
+- **React Router**: Rotas client-side requerem servidor (limitação conhecida)
+- **WebGL/Three.js**: Texturas, modelos, shaders, WASM (Draco) capturados
+- **Rive**: Arquivos `.riv` e canvas interativos funcionam
 
 ### Limitações Conhecidas
 
@@ -234,4 +212,4 @@ Contribuições são bem-vindas! Por favor:
 
 **Desenvolvido com ❤️ para AI Design & Style Transfer**
 
-GitHub: [DeepMirror-WebSites](https://github.com/seu-usuario/DeepMirror-WebSites)
+GitHub: [DeepMirror-WebSites](https://github.com/Heitor-Tasso/DeepMirror-WebSites)

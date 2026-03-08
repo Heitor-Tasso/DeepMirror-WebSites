@@ -22,21 +22,21 @@ fi
 echo ""
 
 # Clean Python cache (prevent Flask reloader bug)
-echo -e "${GREEN}🧹 Limpando cache Python...${NC}"
+echo -e "${GREEN}Limpando cache Python...${NC}"
 find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 find . -type f -name "*.pyc" -delete 2>/dev/null || true
-echo "✓ Cache limpo"
+echo "- Cache limpo"
 
 echo ""
 
 if [ "$ENVIRONMENT" = "local" ]; then
     # Local development setup
-    echo -e "${GREEN}📦 Setup Local${NC}"
+    echo -e "${GREEN}Setup Local${NC}"
     echo "--------------------------------"
 
     # Check if uv is installed
     if ! command -v uv &> /dev/null; then
-        echo -e "${RED}❌ uv não encontrado!${NC}"
+        echo -e "${RED}uv não encontrado!${NC}"
         echo ""
         echo "Por favor, instale o uv primeiro:"
         echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
@@ -45,23 +45,23 @@ if [ "$ENVIRONMENT" = "local" ]; then
         exit 1
     fi
 
-    echo "✓ uv encontrado: $(uv --version)"
+    echo "- uv encontrado: $(uv --version)"
     echo ""
 
     # Sync dependencies with uv
-    echo -e "${GREEN}📥 Instalando dependências com uv...${NC}"
+    echo -e "${GREEN}Instalando dependências com uv...${NC}"
     uv sync
-    echo "✓ Dependências instaladas"
+    echo "- Dependências instaladas"
 
     echo ""
 
     # Install Playwright Chromium
-    echo -e "${GREEN}🌐 Instalando Playwright Chromium...${NC}"
+    echo -e "${GREEN}Instalando Playwright Chromium...${NC}"
     uv run playwright install chromium
-    echo "✓ Playwright Chromium instalado"
+    echo "- Playwright Chromium instalado"
 
     echo ""
-    echo -e "${GREEN}✅ Setup completo!${NC}"
+    echo -e "${GREEN}Setup completo!${NC}"
     echo ""
     echo "Para rodar a aplicação:"
     echo "  uv run python app.py"
@@ -72,24 +72,24 @@ if [ "$ENVIRONMENT" = "local" ]; then
 
 else
     # Docker/Deploy environment
-    echo -e "${GREEN}📦 Setup Docker/Deploy${NC}"
+    echo -e "${GREEN}Setup Docker/Deploy${NC}"
     echo "--------------------------------"
 
     echo "Instalando dependências Python..."
     pip install -r requirements.txt
-    echo "✓ Dependências instaladas"
+    echo "- Dependências instaladas"
 
     echo ""
 
     echo "Instalando Playwright Chromium..."
     playwright install chromium
-    echo "✓ Playwright Chromium instalado"
+    echo "- Playwright Chromium instalado"
 
     echo ""
 
     echo "Tentando instalar dependências do sistema (pode falhar)..."
-    playwright install-deps chromium || echo "⚠️  System deps install falhou (continuando)"
+    playwright install-deps chromium || echo " System deps install falhou (continuando)"
 
     echo ""
-    echo -e "${GREEN}✅ Build completo!${NC}"
+    echo -e "${GREEN}Build completo!${NC}"
 fi

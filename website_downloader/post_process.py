@@ -112,14 +112,14 @@ class PostProcessor:
 
             # If it has ALL three attributes, it's a rendered snapshot - remove it
             if has_width_attr and has_height_attr and has_engine_attr:
-                self.log(f"   🗑️ Removendo canvas renderizado: {canvas.get('width')}x{canvas.get('height')} ({canvas.get('class', [])})")
+                self.log(f"   Removendo canvas renderizado: {canvas.get('width')}x{canvas.get('height')} ({canvas.get('class', [])})")
                 canvas.decompose()
                 removed += 1
 
         if removed > 0:
-            self.log(f"   ✅ Removidos {removed} canvas renderizados (Playwright snapshots)")
+            self.log(f"   Removidos {removed} canvas renderizados (Playwright snapshots)")
         else:
-            self.log(f"   ℹ️ Nenhum canvas renderizado encontrado para remoção")
+            self.log(f"   Nenhum canvas renderizado encontrado para remoção")
 
     def _process_srcset(self, srcset, base=None):
         """Process a srcset attribute and return the rewritten version"""
@@ -221,7 +221,7 @@ class PostProcessor:
             new_classes = [c for c in html_classes if c.lower() not in [lc.lower() for lc in lenis_classes]]
             if new_classes != html_classes:
                 html_elem['class'] = new_classes
-                self.log("   ✅ Removidas classes Lenis/Locomotive do html")
+                self.log("   Removidas classes Lenis/Locomotive do html")
 
         # Fix body element
         body = soup.find('body')
@@ -237,7 +237,7 @@ class PostProcessor:
             # Fix flex centering
             if 'items-center' in new_classes and 'flex' in new_classes:
                 new_classes = [c if c != 'items-center' else 'items-start' for c in new_classes]
-                self.log("   ✅ Corrigida centralização vertical do body")
+                self.log("   Corrigida centralização vertical do body")
 
             if new_classes != body_classes:
                 body['class'] = new_classes
@@ -297,7 +297,7 @@ class PostProcessor:
             fix_style['data-scroll-fix'] = 'true'
             fix_style.string = scroll_fix_css
             head.append(fix_style)
-            self.log("   ✅ Injetado CSS para corrigir scroll")
+            self.log("   Injetado CSS para corrigir scroll")
 
         # Remove smooth scroll library scripts
         scripts_removed = 0
@@ -313,7 +313,7 @@ class PostProcessor:
                 scripts_removed += 1
 
         if scripts_removed > 0:
-            self.log(f"   ✅ Removidos {scripts_removed} scripts de smooth scroll")
+            self.log(f"   Removidos {scripts_removed} scripts de smooth scroll")
 
     def _remove_wrapper_iframes(self, soup):
         """Remove wrapper iframes (preview frames from site builders)"""
@@ -327,7 +327,7 @@ class PostProcessor:
 
     def _process_stylesheets(self, soup):
         """Process external stylesheets"""
-        self.log("🎨 Processando stylesheets...")
+        self.log("Processando stylesheets...")
         for link in soup.find_all('link', rel='stylesheet'):
             href = link.get('href')
             if not href or href.startswith('data:'):
@@ -365,14 +365,14 @@ class PostProcessor:
 
     def _process_inline_styles(self, soup):
         """Process inline <style> tags"""
-        self.log("✨ Processando estilos inline...")
+        self.log("Processando estilos inline...")
         for style_tag in soup.find_all('style'):
             if style_tag.string:
                 style_tag.string = self._rewrite_css_urls(style_tag.string, self.base_url)
 
     def _process_scripts(self, soup):
         """Process external scripts"""
-        self.log("📝 Processando scripts...")
+        self.log("Processando scripts...")
         for script in soup.find_all('script', src=True):
             src = script.get('src')
             if not src or src.startswith('data:'):
@@ -387,7 +387,7 @@ class PostProcessor:
 
     def _process_images(self, soup):
         """Process all image-related elements"""
-        self.log("🖼️ Processando imagens...")
+        self.log("Processando imagens...")
         for elem in soup.find_all(['img', 'source', 'video', 'audio', 'picture', 'input']):
             # Check lazy loading attributes first
             for attr in ['data-src', 'data-original', 'data-lazy-src', 'data-url', 'data-image', 'data-bg']:
@@ -426,12 +426,12 @@ class PostProcessor:
 
                             if local_path:
                                 elem['src'] = local_path
-                                self.log(f"   ✅ Next.js Image API: {src[:60]}... -> {local_path}")
+                                self.log(f"   Next.js Image API: {src[:60]}... -> {local_path}")
                             else:
-                                self.log(f"   ⚠️ Next.js Image API não encontrado: {original_url}")
+                                self.log(f"   Next.js Image API não encontrado: {original_url}")
                             continue
                     except Exception as e:
-                        self.log(f"   ⚠️ Erro ao processar Next.js Image API: {e}")
+                        self.log(f"   Erro ao processar Next.js Image API: {e}")
                         pass  # Fallback to normal processing
 
                 local_path = self.network.get_resource(src)
@@ -458,7 +458,7 @@ class PostProcessor:
 
     def _process_inline_style_attrs(self, soup):
         """Process inline style attributes with url()"""
-        self.log("🔗 Processando atributos de estilo inline...")
+        self.log("Processando atributos de estilo inline...")
         for elem in soup.find_all(attrs={'style': True}):
             style = elem['style']
             if 'url(' in style:
@@ -500,7 +500,7 @@ class PostProcessor:
 
     def _fix_navigation_links(self, soup):
         """Fix navigation links that won't work locally"""
-        self.log("🔗 Corrigindo links de navegação...")
+        self.log("Corrigindo links de navegação...")
         for a in soup.find_all('a', href=True):
             href = a['href']
             if href == '/':
@@ -564,7 +564,7 @@ class PostProcessor:
                     script.decompose()
                     scripts_removed += 1
 
-            self.log(f"   ✅ Removidos {scripts_removed} scripts de hydration do {framework}")
+            self.log(f"   Removidos {scripts_removed} scripts de hydration do {framework}")
 
     def _global_url_rewrite(self):
         """
@@ -691,11 +691,11 @@ class PostProcessor:
                         js_files_processed += 1
 
             except Exception as e:
-                self.log(f"⚠️ Erro ao processar {os.path.basename(filepath)}: {e}")
+                self.log(f"Erro ao processar {os.path.basename(filepath)}: {e}")
 
-        self.log(f"   ✅ {replacements_count} arquivos reescritos com URLs locais")
+        self.log(f"   {replacements_count} arquivos reescritos com URLs locais")
         if js_files_processed > 0:
-            self.log(f"   📝 Incluindo {js_files_processed} arquivos JavaScript")
+            self.log(f"   Incluindo {js_files_processed} arquivos JavaScript")
 
     def _process_json_files(self):
         """
@@ -803,18 +803,18 @@ class PostProcessor:
                     with open(filepath, 'w', encoding='utf-8') as f:
                         json.dump(rewritten_data, f, indent=2, ensure_ascii=False)
                     processed_count += 1
-                    self.log(f"   ✅ Reescrito: {os.path.basename(filepath)}")
+                    self.log(f"   Reescrito: {os.path.basename(filepath)}")
 
             except json.JSONDecodeError:
                 # Not valid JSON, skip
                 pass
             except Exception as e:
-                self.log(f"   ⚠️ Erro ao processar {os.path.basename(filepath)}: {e}")
+                self.log(f"   Erro ao processar {os.path.basename(filepath)}: {e}")
 
         if processed_count > 0:
-            self.log(f"   ✅ {processed_count} arquivos JSON/manifest reescritos")
+            self.log(f"   {processed_count} arquivos JSON/manifest reescritos")
         else:
-            self.log(f"   ℹ️ Nenhum arquivo JSON/manifest precisou de reescrita")
+            self.log(f"   Nenhum arquivo JSON/manifest precisou de reescrita")
 
     def _rewrite_basenames_in_content(self, content):
         """
@@ -885,7 +885,7 @@ class PostProcessor:
                     local_path = resource_map.get(abs_url) or resource_map.get(original_url)
 
                 if local_path:
-                    self.log(f"   ✅ Reescrito Next.js no HTML: {full_match[:60]}... -> {local_path}")
+                    self.log(f"   Reescrito Next.js no HTML: {full_match[:60]}... -> {local_path}")
                     return local_path
             except:
                 pass
@@ -904,7 +904,7 @@ class PostProcessor:
 
         resource_map = self.network.get_resource_map()
         if not resource_map:
-            self.log("   ⚠️ Resource map vazio, interceptor não injetado")
+            self.log("   Resource map vazio, interceptor não injetado")
             return
 
         # Decide: inline or external JSON?
@@ -996,9 +996,9 @@ class PostProcessor:
             else:
                 head.append(script_tag)
 
-            self.log(f"   ✅ Fetch interceptor injetado ({len(resource_map)} mapeamentos)")
+            self.log(f"   Fetch interceptor injetado ({len(resource_map)} mapeamentos)")
         else:
-            self.log("   ⚠️ <head> não encontrado, interceptor não injetado")
+            self.log("   <head> não encontrado, interceptor não injetado")
 
     def _remove_preconnects(self, soup):
         """FASE 4: Remove preconnect and dns-prefetch (useless offline)"""
@@ -1008,11 +1008,11 @@ class PostProcessor:
             removed += 1
 
         if removed > 0:
-            self.log(f"   ✅ Removidos {removed} preconnects/dns-prefetch")
+            self.log(f"   Removidos {removed} preconnects/dns-prefetch")
 
     def _process_preloads(self, soup):
         """FASE 4: Process preload/prefetch links"""
-        self.log("🔗 Processando preloads...")
+        self.log("Processando preloads...")
         processed = 0
 
         for link in soup.find_all('link', rel=lambda r: r and any(x in r for x in ['preload', 'prefetch', 'modulepreload'])):
@@ -1024,7 +1024,7 @@ class PostProcessor:
                     processed += 1
 
         if processed > 0:
-            self.log(f"   ✅ {processed} preloads reescritos")
+            self.log(f"   {processed} preloads reescritos")
 
     def _remove_tracking_scripts(self, soup):
         """FASE 4: Remove tracking/analytics scripts by known domains"""
@@ -1039,7 +1039,7 @@ class PostProcessor:
                 removed += 1
 
         if removed > 0:
-            self.log(f"   ✅ Removidos {removed} scripts de tracking")
+            self.log(f"   Removidos {removed} scripts de tracking")
 
     def _remove_sourcemaps(self):
         """FASE 4: Remove sourceMappingURL from JS files (BUG FIX 1.3: now recursive)"""
@@ -1069,7 +1069,7 @@ class PostProcessor:
                             pass
 
         if cleaned > 0:
-            self.log(f"   ✅ {cleaned} arquivos JS limpos")
+            self.log(f"   {cleaned} arquivos JS limpos")
 
     def save_html(self, html_output):
         """Save final HTML to disk"""

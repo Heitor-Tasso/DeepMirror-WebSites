@@ -1,5 +1,5 @@
 """
-Website Downloader - Fachada que mantém interface pública
+DeepMirror-WebSites - Fachada que mantém interface pública
 """
 import os
 import re
@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from website_downloader.browser import BrowserController
 from website_downloader.network import NetworkRecorder
 from website_downloader.post_process import PostProcessor
+from pathlib import Path
 
 
 class WebsiteDownloader:
@@ -75,7 +76,7 @@ class WebsiteDownloader:
         # 7. Get final HTML
         if is_iframe and iframe_content:
             html_content = iframe_content
-            self.log("✨ Usando conteúdo extraído do iframe")
+            self.log("Usando conteúdo extraído do iframe")
         else:
             html_content = self.browser.get_content()
 
@@ -86,7 +87,7 @@ class WebsiteDownloader:
         self.browser.close()
 
         # 9.5. FASE 3: Save all captured resources to disk before processing
-        self.log("💾 Salvando recursos capturados...")
+        self.log("Salvando recursos capturados...")
         self.network.save_all_captured_resources()
 
         # 10. Initialize post-processor with final base_url
@@ -108,7 +109,7 @@ class WebsiteDownloader:
 
         # 14. FASE 6: Generate final report
         elapsed = time.time() - start_time
-        self.log(f"\n⏱️ Tempo total: {elapsed:.1f}s")
+        self.log(f"\nTempo total: {elapsed:.1f}s")
 
         self.network.generate_final_report()
 
@@ -116,68 +117,9 @@ class WebsiteDownloader:
 
     def _create_serve_script(self):
         """FASE 3: Create root serve.py selector script in output directory"""
-        serve_selector_content = '''#!/usr/bin/env python3
-"""
-Servidor Local para Site Baixado via DeepMirror-WebSites
-Escolha entre versão RAW ou CLEAN do site.
-
-Uso:
-    python3 serve.py
-    python serve.py
-
-Requisitos: Python 3.7+
-"""
-import os
-import sys
-import subprocess
-from pathlib import Path
-
-
-def main():
-    print("=" * 60)
-    print("🪞 DeepMirror WebSites - Seletor de Versão")
-    print("=" * 60)
-    print("\\nQual versão do site você deseja visualizar?\\n")
-    print("1. RAW   - Versão completa com todos os recursos")
-    print("2. CLEAN - Versão otimizada para IA (sem canvas/scripts)")
-    print("\\n" + "=" * 60)
-
-    while True:
-        choice = input("\\nEscolha (1/2): ").strip()
-
-        if choice == "1":
-            folder = "raw"
-            break
-        elif choice == "2":
-            folder = "clean"
-            break
-        else:
-            print("❌ Opção inválida. Digite 1 ou 2.")
-
-    # Get path to serve.py in selected folder
-    serve_path = Path(__file__).parent / folder / "serve.py"
-
-    if not serve_path.exists():
-        print(f"\\n❌ Erro: Arquivo {serve_path} não encontrado!")
-        sys.exit(1)
-
-    print(f"\\n✨ Iniciando versão {folder.upper()}...\\n")
-
-    # Execute the serve.py in the selected folder
-    try:
-        subprocess.run([sys.executable, str(serve_path)])
-    except KeyboardInterrupt:
-        print("\\n\\n🛑 Servidor encerrado pelo usuário.")
-        sys.exit(0)
-
-
-if __name__ == "__main__":
-    main()
-'''
-
+        serve_template = Path(__file__).parent.parent / 'templates' / 'serve_outside.py'
         serve_script_path = os.path.join(self.output_dir, 'serve.py')
-        with open(serve_script_path, 'w', encoding='utf-8') as f:
-            f.write(serve_selector_content)
+        shutil.copy(serve_template, os.path.join(self.output_dir, 'serve.py'))
 
         # Make executable on Unix-like systems
         try:
@@ -185,7 +127,7 @@ if __name__ == "__main__":
         except:
             pass  # Windows doesn't support this
 
-        self.log("   ✅ Seletor de servidor (serve.py) incluído no download")
+        self.log("   Seletor de servidor (serve.py) incluído no download")
 
 
 def get_site_name(url):

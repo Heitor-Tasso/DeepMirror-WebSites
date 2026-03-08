@@ -81,7 +81,7 @@ def main():
     try:
         PORT = find_available_port(8000)
     except RuntimeError as e:
-        print(f"❌ Erro: {e}")
+        print(f"Erro: {e}")
         sys.exit(1)
 
     # Create server
@@ -91,26 +91,26 @@ def main():
     url = f"http://localhost:{PORT}"
 
     print("=" * 60)
-    print("🪞 DeepMirror WebSites - Servidor Local")
+    print("DeepMirror WebSites - Servidor Local")
     print("=" * 60)
-    print(f"\n🌐 Servidor rodando em: {url}")
-    print(f"📁 Diretório: {os.getcwd()}")
-    print("\n✨ Abrindo navegador...")
-    print("\n⚠️  Para parar o servidor: Ctrl+C")
+    print(f"\nServidor rodando em: {url}")
+    print(f"Diretório: {os.getcwd()}")
+    print("\nAbrindo navegador...")
+    print("\n Para parar o servidor: Ctrl+C")
     print("=" * 60 + "\n")
 
     # Open browser
     try:
         webbrowser.open(url)
     except:
-        print("⚠️  Não foi possível abrir o navegador automaticamente.")
+        print(" Não foi possível abrir o navegador automaticamente.")
         print(f"   Acesse manualmente: {url}")
 
     # Start server
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\n\n🛑 Servidor encerrado pelo usuário.")
+        print("\n\nServidor encerrado pelo usuário.")
         httpd.shutdown()
         sys.exit(0)
 

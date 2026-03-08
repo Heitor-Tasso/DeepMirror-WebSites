@@ -1,5 +1,5 @@
 """
-Website Downloader - Configurações e Constantes
+DeepMirror-WebSites - Configurações e Constantes
 """
 
 # Timeouts

@@ -2,19 +2,20 @@
 
 Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 
-O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
-e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
-
 ## [Unreleased]
+
+### Fixed - Bug 2.0: Canva do site Landonorris Duplicado ✅
+
+- **Problema**: O Playwright salva o HTML depois do Three.js já ter criado o canvas. Quando recarregamos offline, o script roda novamente e cria outro canvas.
+- **Solução**: Remover canvas com atributos de dimensão fixa (aquele criado pelo Playwright)
+- **Arquivo**: `website_downloader/post_process.py`
 
 ### Fixed - Bug 1.1: Erro "Is a directory" ✅
 
 - **Problema**: URLs terminando com `/` (ex: `_next/image/`) causavam erro `[Errno 21] Is a directory`
 - **Causa**: Sistema tentava salvar diretório como arquivo
 - **Solução**: Detectar URLs terminando em `/` e salvar como `index.html` dentro do diretório
-- **Arquivo**: `website_downloader/network.py:201-233`
-- **Validação**: Pendente teste com pocketchangethe.world
-- **Data**: 06/Mar/2026
+- **Arquivo**: `website_downloader/network.py`
 
 ### Fixed - Bug 1.2: CDN Patterns Hardcoded (Overfitting) ✅
 
@@ -22,33 +23,26 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 - **Violação**: Manifesto (regra C + constraint 3) — código genérico, não site-específico
 - **Solução**: Derivar automaticamente domínios de CDN a partir do `resource_map`
 - **Implementação**: Extrai domínios únicos do `resource_map` e gera patterns dinamicamente
-- **Arquivo**: `website_downloader/post_process.py:535-560`
+- **Arquivo**: `website_downloader/post_process.py`
 - **Benefício**: Funciona para QUALQUER site, não apenas landonorris.com
-- **Data**: 06/Mar/2026
 
 ### Fixed - Bug 1.3: Sourcemap Removal Não-Recursivo ✅
 
 - **Problema**: `_remove_sourcemaps()` usava `os.listdir()`, processava apenas raiz de `assets/`
 - **Solução**: Trocar para `os.walk()` para processar TODOS arquivos JS em subpastas
-- **Arquivo**: `website_downloader/post_process.py:748-775`
-- **Data**: 06/Mar/2026
+- **Arquivo**: `website_downloader/post_process.py`
 
 ### Added - Fase 2: UX da Interface Web ✅
 
 - **Problema**: Reset automático após 2s, logs desapareciam, nenhuma ação clara pós-download
 - **Correções implementadas**:
   - NÃO resetar automaticamente após download/erro
-  - Botão "Novo Download" aparece após conclusão (limpa estado ao clicar)
   - Logs sempre visíveis com altura expandida (400px vs 200px)
   - Botão "Copiar Logs" ao lado do container de logs
   - Mensagem de erro clara e persistente
   - Link de download permanente (não desaparece)
 - **Design**: Aplicado Asimov Academy Vibe Design (Dark Mode)
-  - Cores: `--primary-blue: #1A73E9`, `--accent-coral: #FB742D`, `--bg-dark: #47464D`
-  - Sans-serif moderno, geometrias arredondadas (8px radius)
-  - Layout estruturado com espaçamentos consistentes
 - **Arquivos**: `templates/index.html`, `templates/style.css`, `templates/main.js`
-- **Data**: 06/Mar/2026
 
 ### Added - Fase 3: Servidor Local nos Downloads ✅
 
@@ -61,10 +55,9 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
   - Instruções claras no terminal
 - **Uso**: `python3 serve.py` ou `python serve.py`
 - **Requisitos**: Python 3.7+ (stdlib apenas, sem deps externas)
-- **Arquivo**: `downloader.py:112-220`
-- **Data**: 06/Mar/2026
+- **Arquivo**: `downloader.py`
 
-### Added - Fase 4: Script de Limpeza para IA ✅
+### Added - Fase 4: Script de Limpeza para IA (TODO: Necessita melhorar) ⏳
 
 - **Feature**: Otimização de sites para consumo por IA (redução de tokens)
 - **Implementação**: Módulo `website_downloader/clean.py`
@@ -89,7 +82,6 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
   - Pula arquivos já minificados (< 10 linhas)
 - **NÃO faz**: Minificação, alteração de lógica, remoção de código funcional
 - **Integração**: Chamado automaticamente em `app.py` após download
-- **Data**: 06/Mar/2026
 
 ### Added - Fase 5: Setup de Ambiente Local ✅
 
@@ -108,7 +100,6 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 - **Arquivos**:
   - Criado: `setup.sh` (unificado, detecta ambiente)
   - Atualizado: `build.sh` (chama `setup.sh` com flag Docker)
-- **Data**: 06/Mar/2026
 
 ### Added - Fase 6: Documentação de Sites Testados ✅
 
@@ -120,7 +111,6 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
   - Estatísticas gerais
   - Lista de sites próximos a testar
 - **Propósito**: Registro vivo de validações, facilita tracking de bugs por site
-- **Data**: 06/Mar/2026
 
 ### Fixed - Correção: CSS Integrity + Basenames Relativos + URL Decode ✅
 
@@ -130,9 +120,9 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
   3. **URL encoding**: Arquivo salvo como `MonaSans_wdth%2Cwght.woff2` (com `%2C`) não era servido pelo http.server → 404 para font
 
 - **Soluções implementadas**:
-  - **Remover integrity de CSS** (`post_process.py:237-240`): Remove `integrity`, `crossorigin`, `nonce` de `<link rel="stylesheet">`
+  - **Remover integrity de CSS** (`post_process.py`): Remove `integrity`, `crossorigin`, `nonce` de `<link rel="stylesheet">`
   - **Processar HTML final** (`post_process.py:52`): Chama `_rewrite_basenames_in_content()` no HTML antes de salvar
-  - **Substituir basenames no HTML** (`post_process.py:560-585`): Método dedicado para HTML inline - substitui `url("basename.svg")` → `url("/assets/path/basename.svg")`
+  - **Substituir basenames no HTML** (`post_process.py`): Método dedicado para HTML inline - substitui `url("basename.svg")` → `url("/assets/path/basename.svg")`
   - **URL decode em filenames** (`network.py:155`): Usa `urllib.parse.unquote()` para decodificar `%2C` → `,` antes de salvar arquivo
 
 - **Validação completa**:
@@ -159,7 +149,7 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
   4. **JavaScript continha**: `var vQ="https://lando.itsoffbrand.io/gl"` (base path do CDN)
   5. **Por isso**: Todas texturas eram pedidas do CDN externo (403), não do disco local
 
-- **Solução implementada** (`post_process.py:475-486`):
+- **Solução implementada** (`post_process.py`):
   - **Rewrite recursivo**: Mudado de `os.listdir()` para `os.walk()` - processa TODOS arquivos em subpastas
   - **Substituição de CDN**: Adicionados padrões para substituir base URLs de CDNs externos:
     - `"https://lando.itsoffbrand.io/"` → `"/assets/"`

@@ -27,20 +27,20 @@ class SiteCleaner:
         - raw/: Exact copy of original download
         - clean/: Optimized for AI (reduced whitespace, removed comments)
         """
-        self.log("🧹 Iniciando limpeza para consumo por IA...")
+        self.log("Iniciando limpeza para consumo por IA...")
 
         # Create directories
         raw_dir = self.site_dir / 'raw'
         clean_dir = self.site_dir / 'clean'
 
         # Copy original to raw/ (exact backup)
-        self.log("   📦 Criando versão raw (backup original)...")
+        self.log("   Criando versão raw (backup original)...")
         if raw_dir.exists():
             shutil.rmtree(raw_dir)
         shutil.copytree(self.site_dir, raw_dir, ignore=shutil.ignore_patterns('raw', 'clean'))
 
         # Create clean version
-        self.log("   ✨ Criando versão clean (otimizada para IA)...")
+        self.log("   Criando versão clean (otimizada para IA)...")
         if clean_dir.exists():
             shutil.rmtree(clean_dir)
         shutil.copytree(self.site_dir, clean_dir, ignore=shutil.ignore_patterns('raw', 'clean'))
@@ -50,9 +50,8 @@ class SiteCleaner:
 
         # Copy serve.py to both raw/ and clean/
         serve_template = Path(__file__).parent.parent / 'templates' / 'serve_template.py'
-        if serve_template.exists():
-            shutil.copy(serve_template, raw_dir / 'serve.py')
-            shutil.copy(serve_template, clean_dir / 'serve.py')
+        shutil.copy(serve_template, raw_dir / 'serve.py')
+        shutil.copy(serve_template, clean_dir / 'serve.py')
 
         # Remove original files (keep only raw/, clean/, and serve.py)
         # This prevents ZIP from having duplicate content
@@ -64,11 +63,11 @@ class SiteCleaner:
                 else:
                     item.unlink()
 
-        self.log(f"   ✅ Limpeza completa:")
-        self.log(f"      • {self.stats['html_cleaned']} arquivos HTML")
-        self.log(f"      • {self.stats['css_cleaned']} arquivos CSS")
-        self.log(f"      • {self.stats['js_cleaned']} arquivos JS")
-        self.log(f"      • ~{self.stats['total_lines_removed']} linhas removidas")
+        self.log(f"   Limpeza completa:")
+        self.log(f"      - {self.stats['html_cleaned']} arquivos HTML")
+        self.log(f"      - {self.stats['css_cleaned']} arquivos CSS")
+        self.log(f"      - {self.stats['js_cleaned']} arquivos JS")
+        self.log(f"      - ~{self.stats['total_lines_removed']} linhas removidas")
 
         return True
 

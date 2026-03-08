@@ -325,7 +325,7 @@ class NetworkRecorder:
                     saved_count += 1
 
         if saved_count > 0:
-            self.log(f"   ✅ {saved_count} recursos salvos em disco")
+            self.log(f"   {saved_count} recursos salvos em disco")
 
     def get_resource_map(self):
         """Return the resource_map for URL rewriting"""
@@ -342,34 +342,34 @@ class NetworkRecorder:
     def log_stats(self):
         """Log detailed statistics"""
         stats = self.get_stats()
-        self.log(f"📊 Recursos capturados por tipo:")
+        self.log(f"Recursos capturados por tipo:")
         if stats['by_type']['image'] > 0:
-            self.log(f"   🖼️ Imagens: {stats['by_type']['image']}")
+            self.log(f"   Imagens: {stats['by_type']['image']}")
         if stats['by_type']['script'] > 0:
-            self.log(f"   📝 Scripts: {stats['by_type']['script']}")
+            self.log(f"   Scripts: {stats['by_type']['script']}")
         if stats['by_type']['stylesheet'] > 0:
-            self.log(f"   🎨 CSS: {stats['by_type']['stylesheet']}")
+            self.log(f"   CSS: {stats['by_type']['stylesheet']}")
         if stats['by_type']['font'] > 0:
-            self.log(f"   🔤 Fonts: {stats['by_type']['font']}")
+            self.log(f"   Fonts: {stats['by_type']['font']}")
         if stats['by_type']['media'] > 0:
-            self.log(f"   🎬 Mídia: {stats['by_type']['media']}")
+            self.log(f"   Mídia: {stats['by_type']['media']}")
         if stats['by_type']['other'] > 0:
-            self.log(f"   📦 Outros: {stats['by_type']['other']}")
+            self.log(f"   Outros: {stats['by_type']['other']}")
 
     def generate_final_report(self):
         """FASE 6: Generate comprehensive final report"""
         self.log("\n" + "="*60)
-        self.log("📋 RELATÓRIO FINAL")
+        self.log("RELATÓRIO FINAL")
         self.log("="*60)
 
         # Resources by type
         total = sum(self.stats_by_type.values())
-        self.log(f"\n✅ Total baixado: {total} recursos")
+        self.log(f"\nTotal baixado: {total} recursos")
         for res_type, count in self.stats_by_type.items():
             if count > 0:
                 percentage = (count / total * 100) if total > 0 else 0
                 emoji = {'image': '🖼️', 'script': '📝', 'stylesheet': '🎨',
-                        'font': '🔤', 'media': '🎬', 'other': '📦'}[res_type]
+                        'font': '✍️', 'media': '🎬', 'other': '📦'}[res_type]
                 self.log(f"   {emoji} {res_type.capitalize()}: {count} ({percentage:.1f}%)")
 
         # Debug: Critical URLs seen but not captured
@@ -381,32 +381,32 @@ class NetworkRecorder:
                     critical_seen.append((url, status))
 
         if critical_seen:
-            self.log(f"\n🔍 URLs críticas vistas mas NÃO capturadas: {len(critical_seen)}")
+            self.log(f"\nURLs críticas vistas mas NÃO capturadas: {len(critical_seen)}")
             for url, status in critical_seen[:10]:
                 short_url = url[:80] + '...' if len(url) > 80 else url
-                self.log(f"   • [HTTP {status}] {short_url}")
+                self.log(f"   - [HTTP {status}] {short_url}")
             if len(critical_seen) > 10:
                 self.log(f"   ... e mais {len(critical_seen) - 10}")
 
         # Failed resources
         if self.failed_resources:
-            self.log(f"\n❌ Falhas: {len(self.failed_resources)} recursos")
+            self.log(f"\nFalhas: {len(self.failed_resources)} recursos")
             # Show up to 20
             for url, reason in self.failed_resources[:20]:
                 short_url = url[:60] + '...' if len(url) > 60 else url
-                self.log(f"   • {short_url}")
+                self.log(f"   - {short_url}")
                 self.log(f"     Motivo: {reason}")
             if len(self.failed_resources) > 20:
                 self.log(f"   ... e mais {len(self.failed_resources) - 20}")
 
         # Ignored resources
         if self.ignored_resources:
-            self.log(f"\n🚫 Ignorados: {len(self.ignored_resources)} recursos")
+            self.log(f"\nIgnorados: {len(self.ignored_resources)} recursos")
             # Group by reason
             by_reason = {}
             for url, reason in self.ignored_resources:
                 by_reason.setdefault(reason, []).append(url)
             for reason, urls in by_reason.items():
-                self.log(f"   • {reason}: {len(urls)}")
+                self.log(f"   - {reason}: {len(urls)}")
 
         self.log("="*60 + "\n")
