@@ -117,7 +117,7 @@ class WebsiteDownloader:
 
     def _create_serve_script(self):
         """FASE 3: Create root serve.py selector script in output directory"""
-        serve_template = Path(__file__).parent.parent / 'templates' / 'serve_outside.py'
+        serve_template = Path(__file__).parent / 'templates' / 'serve_outside.py'
         serve_script_path = os.path.join(self.output_dir, 'serve.py')
         shutil.copy(serve_template, os.path.join(self.output_dir, 'serve.py'))
 
