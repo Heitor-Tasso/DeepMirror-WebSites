@@ -28,5 +28,6 @@ Lista de sites para validar após implementação das correções:
 - [ ] https://www.palmer-dinnerware.com/
 - [ ] https://www.getclave.io/
 - [ ] https://www.studiorve.com/
+- [ ] https://landonorris.store/
 
 **Nota:** Este arquivo é atualizado após cada teste validado. Bugs identificados são documentados em [FUTURE.md](FUTURE.md).

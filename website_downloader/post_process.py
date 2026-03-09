@@ -1,5 +1,6 @@
 """
 Post-Processing - HTML/CSS rewriting and cleanup
+REFACTORED: Surgical URL rewriting to avoid breaking JS syntax
 """
 import os
 import re
@@ -47,15 +48,15 @@ class PostProcessor:
         # Convert soup to string ONCE
         html_output = str(soup)
 
-        # Post-string operations (Fase 3 & 4)
-        self._global_url_rewrite()
-        self._process_json_files()  # FASE 3.4: Rewrite URLs in JSON/manifest files
+        # Post-string operations (SAFE operations only)
+        self._safe_url_rewrite_css_only()  # NEW: Only rewrite CSS files safely
+        self._process_json_files()  # SAFE: JSON parsing and rewriting
         self._remove_sourcemaps()
 
-        # FASE 3.3: Also rewrite the HTML output itself (for inline CSS/JS)
+        # FASE 3.3: Rewrite basenames in HTML output (inline CSS/JS)
         html_output = self._rewrite_basenames_in_content(html_output)
 
-        # CRITICAL FIX: Rewrite Next.js Image API in HTML string (after BeautifulSoup converts & back to &amp;)
+        # CRITICAL FIX: Rewrite Next.js Image API in HTML string
         html_output = self._rewrite_nextjs_images_in_html(html_output)
 
         return html_output
@@ -88,18 +89,6 @@ class PostProcessor:
     def _remove_canvas_placeholder_comments(self, soup):
         """
         Remove Playwright-captured canvas elements that will be recreated by WebGL libraries.
-
-        Problem: When Playwright saves DOM after Three.js/Babylon renders, we get:
-        1. The RENDERED canvas with fixed width/height attributes (snapshot from Playwright)
-        2. When reloading offline, the JS library creates ANOTHER canvas
-
-        Result: Two canvas elements, one static (broken) and one dynamic (working)
-
-        Solution: Remove canvas elements with BOTH:
-        - Fixed dimension attributes (width="1920" height="1080")
-        - data-engine attribute (indicates it's already rendered)
-
-        This leaves only placeholder canvas (if any) that the library will populate fresh.
         """
         removed = 0
 
@@ -118,8 +107,6 @@ class PostProcessor:
 
         if removed > 0:
             self.log(f"   Removidos {removed} canvas renderizados (Playwright snapshots)")
-        else:
-            self.log(f"   Nenhum canvas renderizado encontrado para remoção")
 
     def _process_srcset(self, srcset, base=None):
         """Process a srcset attribute and return the rewritten version"""
@@ -129,8 +116,7 @@ class PostProcessor:
         from urllib.parse import quote
 
         def _encode_srcset_url(path):
-            """Encode spaces in srcset URLs so browsers can parse them.
-            srcset spec: spaces separate URL from descriptor, so literal spaces must be %20."""
+            """Encode spaces in srcset URLs so browsers can parse them."""
             return path.replace(' ', '%20')
 
         new_parts = []
@@ -142,9 +128,6 @@ class PostProcessor:
                 continue
 
             # Parse srcset: split by last whitespace to separate URL from descriptor
-            # Descriptor is always the LAST token matching \d+(\.\d+)?[wx]
-            # URL can contain spaces (e.g., "In helm 2024 GIF compressed.webp 500w")
-            # GREEDY (.+) captures everything up to the last whitespace+descriptor
             match = re.match(r'^(.+)\s+(\d+(?:\.\d+)?[wx])$', part)
 
             if match:
@@ -199,7 +182,6 @@ class PostProcessor:
                 # Keep original but encode if it has spaces
                 encoded = _encode_srcset_url(part) if ' ' in url else part
                 if descriptor and ' ' in url:
-                    # Re-encode: URL with %20 + space + descriptor
                     encoded = f"{_encode_srcset_url(url)} {descriptor}"
                 new_parts.append(encoded)
 
@@ -250,7 +232,7 @@ class PostProcessor:
                 if 'scroll' in attr.lower() or 'lenis' in attr.lower():
                     del elem[attr]
 
-        # FASE 5: Inject MINIMAL scroll fix CSS (no element-level forcing)
+        # FASE 5: Inject MINIMAL scroll fix CSS
         scroll_fix_css = """
         /* Scroll fixes - MINIMAL SCOPE */
         html, body {
@@ -412,11 +394,11 @@ class PostProcessor:
                             original_url = unquote(query_params['url'][0])
                             local_path = None
 
-                            # Strategy 1: Try the full /_next/image URL as captured by network
+                            # Strategy 1: Try the full /_next/image URL
                             full_url = urljoin(self.base_url, src)
                             local_path = self.network.get_resource(full_url)
                             if local_path and local_path == full_url:
-                                local_path = None  # get_resource returned original = not found
+                                local_path = None
 
                             # Strategy 2: Try the inner url= parameter
                             if not local_path:
@@ -427,12 +409,9 @@ class PostProcessor:
                             if local_path:
                                 elem['src'] = local_path
                                 self.log(f"   Next.js Image API: {src[:60]}... -> {local_path}")
-                            else:
-                                self.log(f"   Next.js Image API não encontrado: {original_url}")
                             continue
                     except Exception as e:
-                        self.log(f"   Erro ao processar Next.js Image API: {e}")
-                        pass  # Fallback to normal processing
+                        pass
 
                 local_path = self.network.get_resource(src)
                 if local_path and local_path != src:
@@ -534,7 +513,6 @@ class PostProcessor:
         """
         Handle SPA frameworks (Gatsby, Next.js, Nuxt)
         CONSERVATIVE: Only remove hydration/routing scripts that break offline viewing.
-        KEEP all rendering scripts — they may initialize WebGL, animations, etc.
         """
         is_gatsby = soup.find(id='___gatsby') is not None
         is_nextjs = soup.find(id='__next') is not None or self._detect_nextjs(soup)
@@ -566,20 +544,27 @@ class PostProcessor:
 
             self.log(f"   Removidos {scripts_removed} scripts de hydration do {framework}")
 
-    def _global_url_rewrite(self):
+    def _safe_url_rewrite_css_only(self):
         """
-        FASE 3: Blind Mapping - Replace all original URLs with local paths
-        in all text files (HTML, CSS, JS, JSON)
+        REFACTORED: SAFE URL rewriting - CSS FILES ONLY
+
+        JavaScript files are now handled EXCLUSIVELY by the Fetch Interceptor at runtime.
+        This prevents syntax corruption from blind string replacement.
+
+        Only CSS files are rewritten here because:
+        1. CSS has simpler syntax (url() patterns only)
+        2. CSS doesn't have complex string contexts like JS
+        3. Regex-based URL rewriting is safe in CSS
         """
-        self.log("🔄 Aplicando substituição global de URLs...")
+        self.log("🔄 Aplicando substituição de URLs em arquivos CSS...")
 
         resource_map = self.network.get_resource_map()
         if not resource_map:
             return
 
-        # Get all text files in assets/ (recursive)
+        # Get CSS files only (recursive)
         assets_dir = os.path.join(self.output_dir, 'assets')
-        text_extensions = ['.html', '.css', '.js', '.json', '.svg', '.xml']
+        css_extensions = ['.css']
 
         files_to_process = []
         if os.path.exists(assets_dir):
@@ -587,12 +572,11 @@ class PostProcessor:
                 for filename in files:
                     filepath = os.path.join(root, filename)
                     _, ext = os.path.splitext(filename)
-                    if ext.lower() in text_extensions:
+                    if ext.lower() in css_extensions:
                         files_to_process.append(filepath)
 
-        # Process each file
+        # Process each CSS file
         replacements_count = 0
-        js_files_processed = 0
         for filepath in files_to_process:
             try:
                 with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
@@ -623,16 +607,14 @@ class PostProcessor:
                     for variant in variants:
                         if variant in content:
                             # For CSS files in assets/, reference sibling files by basename only
-                            if filepath.endswith('.css') and local_path.startswith('assets/'):
+                            if local_path.startswith('assets/'):
                                 replacement = os.path.basename(local_path)
                             else:
                                 replacement = local_path
 
                             content = content.replace(variant, replacement)
 
-                # BUG FIX 1.2: Generate CDN patterns automatically from resource_map
-                # Extract unique origin domains from resource_map
-                # This replaces hardcoded patterns with generic logic
+                # Generate CDN patterns automatically from resource_map
                 cdn_domains = set()
                 for original_url in resource_map.keys():
                     if original_url.startswith(('http://', 'https://')):
@@ -652,27 +634,21 @@ class PostProcessor:
                     if pattern_http in content:
                         content = content.replace(pattern_http, '/assets/')
 
-                    # Pattern 3: domain/ (protocol-relative)
-                    pattern_relative = f'{domain}/'
-                    # Only replace if not preceded by // or : (to avoid breaking other URLs)
-                    # Simple approach: replace when preceded by quote or space
+                    # Pattern 3: domain/ (protocol-relative, quoted)
                     for quote in ['"', "'"]:
                         pattern_with_quote = f'{quote}{domain}/'
                         if pattern_with_quote in content:
                             content = content.replace(pattern_with_quote, f'{quote}assets/')
 
-                # FASE 3.2: Replace relative basenames (for inline CSS/JS)
-                # Pattern: url("67e2c781...svg") -> url("/assets/67b5a02dc5d338960b17a7e9/67e2c781...svg")
+                # Replace relative basenames (for CSS files)
                 for original_url, local_path in resource_map.items():
                     if local_path.startswith('assets/'):
                         basename = os.path.basename(local_path)
-                        # Replace patterns like url("basename") or src="basename"
+                        # CSS-specific patterns: url("basename")
                         patterns = [
                             f'url("{basename}")',
                             f"url('{basename}')",
                             f'url({basename})',
-                            f'src="{basename}"',
-                            f"src='{basename}'",
                         ]
                         for pattern in patterns:
                             if pattern in content:
@@ -686,25 +662,18 @@ class PostProcessor:
                         f.write(content)
                     replacements_count += 1
 
-                    # Track JS files specifically for debugging
-                    if filepath.endswith('.js'):
-                        js_files_processed += 1
-
             except Exception as e:
                 self.log(f"Erro ao processar {os.path.basename(filepath)}: {e}")
 
-        self.log(f"   {replacements_count} arquivos reescritos com URLs locais")
-        if js_files_processed > 0:
-            self.log(f"   Incluindo {js_files_processed} arquivos JavaScript")
+        if replacements_count > 0:
+            self.log(f"   {replacements_count} arquivos CSS reescritos")
+        else:
+            self.log(f"   Nenhum arquivo CSS precisou de reescrita")
 
     def _process_json_files(self):
         """
         FASE 3.4: Process JSON and manifest files to rewrite URLs
-
-        CRITICAL: Handles relative path calculation for JSON files inside assets/
-        - If JSON is in assets/ and references assets/file.png, rewrite to just file.png
-        - If JSON is in root and references assets/file.png, keep as assets/file.png
-        - Prevents the /assets/assets/file.png double-nesting bug
+        SAFE: Uses JSON parsing, not blind string replacement
         """
         self.log("🔄 Processando arquivos JSON/manifest...")
 
@@ -731,18 +700,7 @@ class PostProcessor:
                 files_to_process.append(root_manifest)
 
         def make_relative_path(json_filepath, resource_path):
-            """
-            Calculate relative path from JSON file to resource.
-
-            Args:
-                json_filepath: Absolute path to JSON file (e.g., /output/assets/manifest.json)
-                resource_path: Resource path from resource_map (e.g., assets/icon.png)
-
-            Returns:
-                Relative path from JSON to resource
-            """
-            # If JSON is inside assets/ and resource is also in assets/
-            # we need to make the path relative to the JSON's directory
+            """Calculate relative path from JSON file to resource."""
             json_dir = os.path.dirname(json_filepath)
             output_dir = self.output_dir
 
@@ -752,12 +710,11 @@ class PostProcessor:
 
             if is_json_in_assets and resource_path.startswith('assets/'):
                 # Both JSON and resource are in assets/
-                # Calculate relative path from JSON dir to resource
                 resource_abs = os.path.join(output_dir, resource_path)
                 relative = os.path.relpath(resource_abs, json_dir)
                 return relative
             else:
-                # JSON is in root or resource is external - use absolute path
+                # JSON is in root or resource is external
                 return resource_path
 
         def rewrite_json_value(value, json_filepath):
@@ -769,7 +726,6 @@ class PostProcessor:
                     abs_url = urljoin(self.base_url, value)
                     if abs_url in resource_map:
                         local_path = resource_map[abs_url]
-                        # Calculate relative path from JSON to resource
                         return make_relative_path(json_filepath, local_path)
                     # Try protocol-relative
                     if value.startswith('//'):
@@ -777,9 +733,8 @@ class PostProcessor:
                         if https_variant in resource_map:
                             local_path = resource_map[https_variant]
                             return make_relative_path(json_filepath, local_path)
-                # Also handle paths that already start with 'assets/' (from previous processing)
+                # Also handle paths that already start with 'assets/'
                 elif value.startswith('assets/'):
-                    # Recalculate relative path
                     return make_relative_path(json_filepath, value)
                 return value
             elif isinstance(value, dict):
@@ -813,12 +768,10 @@ class PostProcessor:
 
         if processed_count > 0:
             self.log(f"   {processed_count} arquivos JSON/manifest reescritos")
-        else:
-            self.log(f"   Nenhum arquivo JSON/manifest precisou de reescrita")
 
     def _rewrite_basenames_in_content(self, content):
         """
-        FASE 3.3: Rewrite relative basenames in content (for inline CSS/JS in HTML)
+        FASE 3.3: Rewrite relative basenames in HTML content (for inline CSS/JS)
         Pattern: url("basename.svg") -> url("/assets/path/basename.svg")
         """
         resource_map = self.network.get_resource_map()
@@ -846,9 +799,7 @@ class PostProcessor:
     def _rewrite_nextjs_images_in_html(self, html_content):
         """
         CRITICAL FIX: Rewrite Next.js Image API URLs in HTML string
-        This runs AFTER BeautifulSoup converts the HTML back to string (which converts & to &amp;)
         Pattern: /_next/image/?url=%2Fpath%2Fimage.png&amp;w=96&amp;q=75 -> assets/image_hash.png
-        Also handles /_next/image?url=... (without trailing slash)
         """
         import re
         from urllib.parse import parse_qs, urlparse, unquote
@@ -857,15 +808,14 @@ class PostProcessor:
         if not resource_map:
             return html_content
 
-        # Match /_next/image with optional trailing slash, capture the full query
-        # Handles both & and &amp; separators, any order of params
+        # Match /_next/image with optional trailing slash
         pattern = r'/_next/image/?\?[^"\'<>\s]+'
 
         def replace_nextjs_url(match):
             full_match = match.group(0)
 
             try:
-                # Normalize &amp; to & for parsing
+                # Normalize &amp; to &
                 normalized = full_match.replace('&amp;', '&')
                 parsed = urlparse(normalized)
                 query_params = parse_qs(parsed.query)
@@ -875,7 +825,7 @@ class PostProcessor:
 
                 original_url = unquote(query_params['url'][0])
 
-                # Strategy 1: Try the full /_next/image URL as it was captured
+                # Strategy 1: Try the full /_next/image URL
                 full_abs = urljoin(self.base_url, normalized)
                 local_path = resource_map.get(full_abs)
 
@@ -898,9 +848,12 @@ class PostProcessor:
 
     def _inject_fetch_interceptor(self, soup):
         """
-        FASE 3: Inject fetch/XHR interceptor to redirect runtime requests
+        REFACTORED: Enhanced fetch/XHR interceptor with:
+        1. Relative path resolution (for dynamic imports)
+        2. CDN blocking (prevent external leaks)
+        3. Better error handling
         """
-        self.log("💉 Injetando fetch interceptor...")
+        self.log("💉 Injetando fetch interceptor aprimorado...")
 
         resource_map = self.network.get_resource_map()
         if not resource_map:
@@ -929,55 +882,161 @@ class PostProcessor:
 (async function() {{
     {map_load_code}
 
-    // Helper: normalize URL
-    function normalizeUrl(url) {{
+    // Build reverse index: basename -> full paths (for relative imports)
+    const basenameIndex = {{}};
+    Object.entries(resourceMap).forEach(([originalUrl, localPath]) => {{
+        if (localPath.startsWith('assets/')) {{
+            const basename = localPath.split('/').pop();
+            if (!basenameIndex[basename]) {{
+                basenameIndex[basename] = [];
+            }}
+            basenameIndex[basename].push(localPath);
+        }}
+    }});
+
+    // Helper: normalize URL to absolute
+    function normalizeUrl(url, baseUrl) {{
         if (!url) return url;
         if (typeof url === 'object' && url.url) url = url.url; // Request object
         if (url.startsWith('data:') || url.startsWith('blob:')) return url;
 
         // Make absolute
         try {{
-            return new URL(url, window.location.href).href;
+            const base = baseUrl || window.location.href;
+            return new URL(url, base).href;
         }} catch(e) {{
             return url;
         }}
     }}
 
+    // Helper: resolve relative path from current script context
+    function resolveRelativePath(url, referrer) {{
+        if (!url.startsWith('./') && !url.startsWith('../')) {{
+            return null; // Not a relative path
+        }}
+
+        try {{
+            // Get the directory of the referrer (current script location)
+            const referrerUrl = new URL(referrer || window.location.href);
+            const referrerDir = referrerUrl.pathname.substring(0, referrerUrl.pathname.lastIndexOf('/') + 1);
+
+            // Resolve relative URL
+            const resolved = new URL(url, window.location.origin + referrerDir).pathname;
+
+            // Extract basename and try to match
+            const basename = resolved.split('/').pop();
+            if (basenameIndex[basename]) {{
+                // If we have exactly one match, use it
+                if (basenameIndex[basename].length === 1) {{
+                    return '/' + basenameIndex[basename][0];
+                }}
+                // Multiple matches: try to find one in same directory structure
+                const referrerPath = referrer.replace(window.location.origin, '');
+                for (const candidate of basenameIndex[basename]) {{
+                    if (referrerPath.includes('assets/') && candidate.includes(basename)) {{
+                        return '/' + candidate;
+                    }}
+                }}
+                // Fallback: use first match
+                return '/' + basenameIndex[basename][0];
+            }}
+        }} catch(e) {{
+            console.warn('[Fetch Interceptor] Relative path resolution failed:', url, e);
+        }}
+
+        return null;
+    }}
+
     // Helper: check if URL is in map
-    function getLocalPath(url) {{
-        const normalized = normalizeUrl(url);
+    function getLocalPath(url, referrer) {{
+        // Try relative resolution first (for dynamic imports)
+        if (url.startsWith('./') || url.startsWith('../')) {{
+            const resolved = resolveRelativePath(url, referrer);
+            if (resolved) return resolved;
+        }}
+
+        const normalized = normalizeUrl(url, referrer);
         if (resourceMap[normalized]) return resourceMap[normalized];
 
         // Try protocol-relative variant
         const withoutProtocol = normalized.replace(/^https?:/, '');
         if (resourceMap[withoutProtocol]) return resourceMap[withoutProtocol];
 
+        // Try basename matching (last resort for CDN URLs)
+        try {{
+            const basename = normalized.split('/').pop().split('?')[0]; // Remove query params
+            if (basenameIndex[basename]) {{
+                if (basenameIndex[basename].length === 1) {{
+                    return '/' + basenameIndex[basename][0];
+                }}
+            }}
+        }} catch(e) {{}}
+
         return null;
+    }}
+
+    // Helper: check if URL is external CDN (should be blocked)
+    function isExternalCDN(url) {{
+        try {{
+            const urlObj = new URL(url, window.location.href);
+            // Block if:
+            // 1. Different origin than current page
+            // 2. Contains CDN markers
+            if (urlObj.origin !== window.location.origin) {{
+                const hostname = urlObj.hostname.toLowerCase();
+                const cdnMarkers = ['.b-cdn.', 'cdn.', '.cloudfront.', '.akamai', '.fastly.'];
+                return cdnMarkers.some(marker => hostname.includes(marker));
+            }}
+        }} catch(e) {{}}
+        return false;
     }}
 
     // Intercept fetch
     const originalFetch = window.fetch;
     window.fetch = function(url, options) {{
-        const localPath = getLocalPath(url);
+        const referrer = (options && options.referrer) || document.currentScript?.src || window.location.href;
+        const localPath = getLocalPath(url, referrer);
+
         if (localPath) {{
-            console.log('[Fetch Interceptor]', url, '->', localPath);
+            console.log('[Fetch Interceptor] ✓', url, '->', localPath);
             return originalFetch(localPath, options);
         }}
+
+        // Block external CDN requests
+        if (isExternalCDN(url)) {{
+            console.warn('[Fetch Interceptor] ✗ Blocked CDN leak:', url);
+            return Promise.reject(new Error('CDN request blocked: ' + url));
+        }}
+
         return originalFetch(url, options);
     }};
 
     // Intercept XMLHttpRequest
     const originalOpen = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function(method, url, ...args) {{
-        const localPath = getLocalPath(url);
+        const referrer = document.currentScript?.src || window.location.href;
+        const localPath = getLocalPath(url, referrer);
+
         if (localPath) {{
-            console.log('[XHR Interceptor]', url, '->', localPath);
+            console.log('[XHR Interceptor] ✓', url, '->', localPath);
             return originalOpen.call(this, method, localPath, ...args);
         }}
+
+        // Block external CDN requests
+        if (isExternalCDN(url)) {{
+            console.warn('[XHR Interceptor] ✗ Blocked CDN leak:', url);
+            // Return 404-like error
+            return originalOpen.call(this, method, 'data:text/plain,404', ...args);
+        }}
+
         return originalOpen.call(this, method, url, ...args);
     }};
 
+    // Intercept dynamic imports (ES modules)
+    // This is tricky because we can't directly intercept import(), but the fetch interceptor will catch it
+
     console.log('[Fetch Interceptor] Installed with', Object.keys(resourceMap).length, 'mappings');
+    console.log('[Fetch Interceptor] Basename index:', Object.keys(basenameIndex).length, 'files');
 }})();
 '''
 
@@ -986,7 +1045,6 @@ class PostProcessor:
         if head:
             script_tag = soup.new_tag('script')
             script_tag['data-fetch-interceptor'] = 'true'
-            # IMPORTANT: Use NavigableString instead of .string for proper content
             from bs4 import NavigableString
             script_tag.append(NavigableString(interceptor_script))
 
@@ -996,12 +1054,12 @@ class PostProcessor:
             else:
                 head.append(script_tag)
 
-            self.log(f"   Fetch interceptor injetado ({len(resource_map)} mapeamentos)")
+            self.log(f"   Fetch interceptor aprimorado injetado ({len(resource_map)} mapeamentos)")
         else:
             self.log("   <head> não encontrado, interceptor não injetado")
 
     def _remove_preconnects(self, soup):
-        """FASE 4: Remove preconnect and dns-prefetch (useless offline)"""
+        """FASE 4: Remove preconnect and dns-prefetch"""
         removed = 0
         for link in soup.find_all('link', rel=lambda r: r and any(x in r for x in ['preconnect', 'dns-prefetch'])):
             link.decompose()
@@ -1027,13 +1085,12 @@ class PostProcessor:
             self.log(f"   {processed} preloads reescritos")
 
     def _remove_tracking_scripts(self, soup):
-        """FASE 4: Remove tracking/analytics scripts by known domains"""
+        """FASE 4: Remove tracking/analytics scripts"""
         self.log("🛡️ Removendo scripts de tracking...")
         removed = 0
 
         for script in soup.find_all('script', src=True):
             src = script.get('src', '')
-            # Check against known tracking patterns
             if any(pattern in src.lower() for pattern in TRACKING_SCRIPTS):
                 script.decompose()
                 removed += 1
@@ -1042,13 +1099,12 @@ class PostProcessor:
             self.log(f"   Removidos {removed} scripts de tracking")
 
     def _remove_sourcemaps(self):
-        """FASE 4: Remove sourceMappingURL from JS files (BUG FIX 1.3: now recursive)"""
+        """FASE 4: Remove sourceMappingURL from JS files"""
         self.log("🗺️ Removendo sourcemaps...")
         assets_dir = os.path.join(self.output_dir, 'assets')
         cleaned = 0
 
         if os.path.exists(assets_dir):
-            # BUG FIX 1.3: Use os.walk() instead of os.listdir() to process all subfolders
             for root, dirs, files in os.walk(assets_dir):
                 for filename in files:
                     if filename.endswith('.js'):

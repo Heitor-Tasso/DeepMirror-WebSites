@@ -86,20 +86,43 @@ downloader.process()
 
 ```
 DeepMirror-WebSites/
-├── website_downloader/       # Core modules
-│   ├── browser.py           # Playwright controller (scroll, canvas interactions)
-│   ├── network.py           # Network recorder (intercept, save, map URLs)
-│   ├── post_process.py      # HTML/CSS processing, rewriting, cleanup
-│   └── __init__.py          # Config constants
-├── app.py                   # Flask API + SSE
-├── downloader.py            # Public API facade
+├── DEPLOY.md
+├── CHANGELOG.md
+├── Dockerfile
+├── FUTURE.md
+├── LOGS.md
+├── README.md
+├── SITES.md
+├── app.py
+├── build.sh
+├── downloader.py
+├── entrypoint.sh
+├── setup.sh
+├── static/
+│   ├── css/
+│   │   └── style.css
+│   └── js/
+│       └── main.js
 ├── templates/
-│   └── index.html           # Web interface
-├── downloads/               # Temporary downloads (auto-cleanup)
-├── CHANGELOG.md             # Detailed change history
-├── FUTURE.md                # Known issues & roadmap
-├── LOGS.md                  # Known logs of tested websites
-└── README.md                # This file
+│   ├── index.html
+│   ├── serve_outside.py
+│   └── serve_template.py
+├── website_downloader/
+│   ├── __init__.py
+│   ├── browser.py
+│   ├── clean.py
+│   ├── network.py
+│   └── post_process.py
+├── downloads/*
+├── .dockerignore
+├── .gitignore
+├── .python-version
+├── uv.lock
+├── pyproject.toml
+├── Procfile
+├── render.yaml
+├── RAILWAY_DEPLOY.md
+└── requirements.txt
 ```
 
 ### Fluxo de Captura
