@@ -238,6 +238,19 @@ class BrowserController:
                 except:
                     pass
 
+            # Hover over video elements to trigger player initialization
+            try:
+                videos = self.page.query_selector_all('video')
+                for video in videos:
+                    box = video.bounding_box()
+                    if box and box['width'] > 50 and box['height'] > 50:
+                        cx = box['x'] + box['width'] / 2
+                        cy = box['y'] + box['height'] / 2
+                        self.page.mouse.move(cx, cy)
+                        self.page.wait_for_timeout(1000)
+            except Exception:
+                pass
+
             self.log("   Interações simuladas")
         except Exception as e:
             self.log(f"Erro ao simular interações: {e}")
@@ -365,14 +378,14 @@ class BrowserController:
         except:
             self.log("   Timeout aguardando CSS-in-JS (pode não usar styled-components)")
 
-    def wait_for_network_idle(self, timeout=30000, idle_time=3000):
+    def wait_for_network_idle(self, timeout=30000, idle_time=10000):
         """
         Wait for network activity to settle intelligently.
         Monitors network requests and waits for idle_time ms of silence.
 
         Args:
             timeout: Maximum time to wait (default 30s)
-            idle_time: Time of silence to consider network idle (default 3s)
+            idle_time: Time of silence to consider network idle (default 10s)
         """
         self.log("Aguardando recursos adicionais (monitorando rede)...")
 
@@ -410,6 +423,26 @@ class BrowserController:
 
             # Small sleep to avoid busy loop
             self.page.wait_for_timeout(100)
+
+    def collect_dynamic_stylesheet_urls(self):
+        """
+        Return all stylesheet hrefs present in the live DOM at this moment.
+
+        Next.js / Vue Router inject <link rel="stylesheet"> elements dynamically
+        after hydration. Calling this just before browser.close() captures URLs
+        that were added by the client-side router and may not be in network_resources.
+        """
+        try:
+            urls = self.page.evaluate("""
+                () => Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+                           .map(l => l.href)
+                           .filter(Boolean)
+            """)
+            self.log(f"   {len(urls)} stylesheet(s) presentes no DOM")
+            return urls
+        except Exception as e:
+            self.log(f"   Erro ao coletar stylesheets: {e}")
+            return []
 
     def get_cookies(self):
         """Get browser cookies for requests session"""

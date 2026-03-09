@@ -36,6 +36,33 @@ MIME_TYPES = {
 class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     """Custom handler with CORS and special MIME types"""
 
+    def do_GET(self):
+        """
+        Serve files with basename-prefix fallback for hash-suffixed filenames.
+
+        When a file is not found at the exact path (e.g. /assets/chunk.js),
+        look for a file whose stem starts with 'chunk_' in the same directory
+        (e.g. chunk_03efa892a380.js). This transparently resolves ES dynamic
+        imports and any other request that uses the original filename while the
+        saved file has a hash suffix appended by the downloader.
+        """
+        path = self.translate_path(self.path)
+        if not os.path.isfile(path):
+            filename = os.path.basename(path)
+            directory = os.path.dirname(path)
+            if '.' in filename and os.path.isdir(directory):
+                stem, _, ext = filename.rpartition('.')
+                ext = '.' + ext
+                candidates = [
+                    f for f in os.listdir(directory)
+                    if os.path.isfile(os.path.join(directory, f))
+                    and os.path.splitext(f)[1] == ext
+                    and os.path.splitext(f)[0].startswith(stem + '_')
+                ]
+                if len(candidates) == 1:
+                    self.path = os.path.join(os.path.dirname(self.path), candidates[0])
+        super().do_GET()
+
     def end_headers(self):
         # CORS headers for local development
         self.send_header('Access-Control-Allow-Origin', '*')

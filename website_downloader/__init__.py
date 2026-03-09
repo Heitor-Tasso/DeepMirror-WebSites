@@ -44,6 +44,7 @@ SKIP_DOMAINS = [
     'tawk.to',
     'livechatinc.com',
     'freshchat.com',
+    'outseta.com',  # Auth/CRM scripts — concatenated bundle segments that SyntaxError in isolation
 ]
 
 # Scripts a remover (tracking, analytics)

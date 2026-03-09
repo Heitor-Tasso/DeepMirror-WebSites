@@ -327,6 +327,25 @@ class NetworkRecorder:
         if saved_count > 0:
             self.log(f"   {saved_count} recursos salvos em disco")
 
+    def ensure_resources_downloaded(self, urls):
+        """
+        Download any URLs from the list that are not already in resource_cache.
+
+        Used to ensure dynamically-injected stylesheets (e.g. Next.js router CSS)
+        are saved even if they were missed by the Playwright response handler.
+        """
+        if not urls:
+            return
+        downloaded = 0
+        for url in urls:
+            if not url or url in self.resource_cache:
+                continue
+            local_path = self._download_fallback(url)
+            if local_path:
+                downloaded += 1
+        if downloaded:
+            self.log(f"   {downloaded} stylesheet(s) baixados via fallback")
+
     def get_resource_map(self):
         """Return the resource_map for URL rewriting"""
         return self.resource_cache.copy()
