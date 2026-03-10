@@ -73,11 +73,9 @@ class WebsiteDownloader:
         # 6.5. Wait for CSS-in-JS to inject (styled-components, emotion, etc.)
         self.browser.wait_for_css_injection()
 
-        # 7. Collect dynamic stylesheet URLs before closing browser
-        #    Next.js / Vue Router inject <link rel="stylesheet"> after hydration;
-        #    grab them from the live DOM so we can fallback-download them.
-        self.log("Coletando stylesheets presentes no DOM...")
-        dynamic_css_urls = self.browser.collect_dynamic_stylesheet_urls()
+        # 7. Coletar todas as URLs de assets presentes no DOM antes de fechar o browser
+        self.log("Coletando assets presentes no DOM para fallback...")
+        dynamic_asset_urls = self.browser.collect_dynamic_asset_urls()
 
         # 8. Get final HTML
         if is_iframe and iframe_content:
@@ -96,9 +94,20 @@ class WebsiteDownloader:
         self.log("Salvando recursos capturados...")
         self.network.save_all_captured_resources()
 
-        # 9.6. Fallback-download any stylesheets that were in the DOM but not captured
-        self.log("Verificando stylesheets do DOM...")
-        self.network.ensure_resources_downloaded(dynamic_css_urls)
+        # 9.6. Fallback-download de qualquer asset do DOM que não foi capturado
+        self.log("Verificando assets do DOM para fallback...")
+        self.network.ensure_resources_downloaded(dynamic_asset_urls)
+
+        # 9.7. Fallback-download de qualquer URL vista pelo browser que não foi salva nem ignorada
+        self.log("Verificando todos os assets vistos pelo browser para fallback...")
+        # Pega todos os URLs vistos pelo handler de resposta
+        all_seen_urls = [url for url, status in self.network.all_seen_urls]
+        # Remove duplicados e já baixados/ignorados
+        already = set(self.network.resource_cache.keys()) | set(self.network.ignored_resources)
+        fallback_urls = [u for u in all_seen_urls if u not in already]
+        if fallback_urls:
+            self.log(f"   {len(fallback_urls)} URLs vistas não salvas, tentando fallback...")
+            self.network.ensure_resources_downloaded(fallback_urls)
 
         # 10. Initialize post-processor with final base_url
         self.post_processor = PostProcessor(

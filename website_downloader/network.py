@@ -16,6 +16,37 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class NetworkRecorder:
+    def postprocess_m3u8_files(self):
+        """
+        Após salvar todos os assets, parseia arquivos .m3u8 baixados e força o download de todas as variantes e chunks referenciados.
+        """
+        import re
+        from urllib.parse import urljoin
+        m3u8_files = []
+        for url, local_path in self.resource_cache.items():
+            if local_path.endswith('.m3u8'):
+                m3u8_files.append((url, local_path))
+        for url, local_path in m3u8_files:
+            try:
+                abs_path = os.path.join(self.assets_dir, local_path.replace('assets/', '', 1))
+                if not os.path.isfile(abs_path):
+                    continue
+                with open(abs_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                # Regex para capturar URIs de chunks e variantes
+                uris = re.findall(r'^(?!#)([^\r\n]+)$', content, re.MULTILINE)
+                base_url = url.rsplit('/', 1)[0] + '/'
+                for ref in uris:
+                    ref = ref.strip()
+                    if not ref or ref.startswith('#'):
+                        continue
+                    # Se for URL absoluta, usa direto; senão, resolve relativa ao .m3u8
+                    ref_url = ref if ref.startswith('http') else urljoin(base_url, ref)
+                    # Força o download se ainda não baixado
+                    if ref_url not in self.resource_cache:
+                        self._download_fallback(ref_url)
+            except Exception as e:
+                self.log(f"Erro ao processar {local_path}: {e}")
     def __init__(self, base_url, assets_dir, log_callback):
         # CRITICAL FIX: Normalize base_url to always end with /
         # This prevents urljoin bugs that create malformed URLs like "domain.comassets/"
@@ -326,6 +357,9 @@ class NetworkRecorder:
 
         if saved_count > 0:
             self.log(f"   {saved_count} recursos salvos em disco")
+
+        # NOVO: pós-processamento de .m3u8 para garantir todos os chunks/variantes
+        self.postprocess_m3u8_files()
 
     def ensure_resources_downloaded(self, urls):
         """

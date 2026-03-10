@@ -9,6 +9,27 @@ from . import (
 )
 
 class BrowserController:
+    def play_all_videos(self, wait_time=8000):
+        """
+        Simula play em todos os <video> do DOM para forçar carregamento de HLS/chunks.
+        """
+        try:
+            video_count = self.page.evaluate("""() => document.querySelectorAll('video').length""")
+            if video_count == 0:
+                self.log("Nenhum <video> encontrado para simular play.")
+                return
+            self.log(f"Simulando play em {video_count} <video>(s)...")
+            self.page.evaluate("""
+                () => {
+                    document.querySelectorAll('video').forEach(v => {
+                        try { v.muted = true; v.play(); } catch(e){}
+                    });
+                }
+            """)
+            self.page.wait_for_timeout(wait_time)
+            self.log(f"Aguardou {wait_time/1000:.1f}s após play em vídeos.")
+        except Exception as e:
+            self.log(f"Erro ao simular play em vídeos: {e}")
     def __init__(self, log_callback):
         self.log = log_callback
         self.playwright = None
@@ -335,6 +356,9 @@ class BrowserController:
 
             self.log("   Aguardando carregamento assíncrono de texturas...")
 
+            # NOVO: Simular play em todos os vídeos após interações de canvas
+            self.play_all_videos(wait_time=8000)
+
         except Exception as e:
             self.log(f"Erro ao interagir com canvas: {e}")
 
@@ -424,24 +448,46 @@ class BrowserController:
             # Small sleep to avoid busy loop
             self.page.wait_for_timeout(100)
 
-    def collect_dynamic_stylesheet_urls(self):
+    def collect_dynamic_asset_urls(self):
         """
-        Return all stylesheet hrefs present in the live DOM at this moment.
-
-        Next.js / Vue Router inject <link rel="stylesheet"> elements dynamically
-        after hydration. Calling this just before browser.close() captures URLs
-        that were added by the client-side router and may not be in network_resources.
+        Coleta todas as URLs de assets presentes no DOM (css, js, img, video, audio, source, object, iframe, preload, srcset).
         """
         try:
             urls = self.page.evaluate("""
-                () => Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
-                           .map(l => l.href)
-                           .filter(Boolean)
+                () => {
+                    const urls = new Set();
+                    // Stylesheets
+                    document.querySelectorAll('link[rel="stylesheet"]').forEach(l => l.href && urls.add(l.href));
+                    // Scripts
+                    document.querySelectorAll('script[src]').forEach(s => s.src && urls.add(s.src));
+                    // Imagens
+                    document.querySelectorAll('img[src]').forEach(i => i.src && urls.add(i.src));
+                    // Vídeos e Áudios
+                    document.querySelectorAll('video[src], audio[src]').forEach(m => m.src && urls.add(m.src));
+                    // <source src>
+                    document.querySelectorAll('source[src]').forEach(s => s.src && urls.add(s.src));
+                    // <object data>
+                    document.querySelectorAll('object[data]').forEach(o => o.data && urls.add(o.data));
+                    // <iframe src>
+                    document.querySelectorAll('iframe[src]').forEach(f => f.src && urls.add(f.src));
+                    // <link rel="preload">
+                    document.querySelectorAll('link[rel="preload"]').forEach(l => l.href && urls.add(l.href));
+                    // <link rel="preload" as="image"> (srcset)
+                    document.querySelectorAll('img[srcset], source[srcset]').forEach(el => {
+                        if (el.srcset) {
+                            el.srcset.split(',').forEach(src => {
+                                const url = src.trim().split(' ')[0];
+                                if (url) urls.add(url);
+                            });
+                        }
+                    });
+                    return Array.from(urls);
+                }
             """)
-            self.log(f"   {len(urls)} stylesheet(s) presentes no DOM")
+            self.log(f"   {len(urls)} asset(s) presentes no DOM para fallback")
             return urls
         except Exception as e:
-            self.log(f"   Erro ao coletar stylesheets: {e}")
+            self.log(f"   Erro ao coletar assets do DOM: {e}")
             return []
 
     def get_cookies(self):
