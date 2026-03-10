@@ -16,6 +16,81 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class NetworkRecorder:
+    def extract_css_from_js_files(self):
+        """
+        Extract lazily-referenced assets from saved JS files.
+
+        Modern bundlers frequently keep chunk URLs as string literals inside JS
+        (Vite __vite__mapDeps, webpack runtime manifests, Next.js split chunks).
+        This scans saved JS files for those literal paths and downloads missing
+        JS/CSS/assets without attempting to parse the bundle syntax.
+        """
+        import re
+        from urllib.parse import urljoin, urlparse
+
+        self.log("Extraindo assets referenciados em arquivos JS...")
+
+        asset_refs_found = 0
+        assets_downloaded = 0
+        seen_refs = set()
+
+        asset_patterns = [
+            r'["\']((?:https?:)?//[^"\']+\.(?:css|js|mjs)(?:\?[^"\']*)?)["\']',
+            r'["\']((?:\./|\.\./|/)?(?:_next/static/(?:css|chunks)|assets|static)/(?:[A-Za-z0-9@_./-]+)\.(?:css|js|mjs|png|jpe?g|svg|webp|avif|gif|woff2?|ttf|otf|eot|json|wasm))["\']',
+            r'["\']((?:\./|\.\./)?[A-Za-z0-9][A-Za-z0-9_.-]*-[A-Za-z0-9_.-]+\.(?:css|js|mjs|png|jpe?g|svg|webp|avif|gif|woff2?|ttf|otf|eot|json|wasm))["\']',
+        ]
+
+        # Scan all saved JS files
+        for url, local_path in list(self.resource_cache.items()):
+            if not local_path.endswith(('.js', '.mjs')):
+                continue
+
+            abs_path = os.path.join(self.assets_dir, local_path.replace('assets/', '', 1))
+            if not os.path.isfile(abs_path):
+                continue
+
+            try:
+                with open(abs_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+
+                for pattern in asset_patterns:
+                    matches = re.findall(pattern, content)
+                    for asset_ref in matches:
+                        if asset_ref in seen_refs:
+                            continue
+
+                        seen_refs.add(asset_ref)
+                        asset_refs_found += 1
+
+                        if asset_ref.startswith('http'):
+                            asset_url = asset_ref
+                        elif asset_ref.startswith('//'):
+                            parsed_base = urlparse(url)
+                            asset_url = f"{parsed_base.scheme}:{asset_ref}"
+                        elif asset_ref.startswith(('assets/', '_next/', 'static/')):
+                            # Bundler manifests often store site-root asset paths without a
+                            # leading slash (e.g. "assets/chunk.js"). Resolving those
+                            # against the current JS file creates bogus ".../assets/assets/"
+                            # URLs, so they must resolve from the site base instead.
+                            asset_url = urljoin(self.base_url, asset_ref)
+                        else:
+                            # Resolve relative chunk paths against the JS file URL itself.
+                            asset_url = urljoin(url, asset_ref)
+
+                        if asset_url not in self.resource_cache:
+                            local_asset = self._download_fallback(asset_url)
+                            if local_asset:
+                                assets_downloaded += 1
+
+            except Exception as e:
+                # Silent failure - don't break on parse errors
+                pass
+
+        if assets_downloaded > 0:
+            self.log(f"   {assets_downloaded} asset(s) baixados via extração de JS")
+        elif asset_refs_found > 0:
+            self.log(f"   {asset_refs_found} referência(s) de asset encontradas (já baixadas)")
+
     def postprocess_m3u8_files(self):
         """
         Após salvar todos os assets, parseia arquivos .m3u8 baixados e força o download de todas as variantes e chunks referenciados.
@@ -71,6 +146,56 @@ class NetworkRecorder:
         # Debug: Track all seen URLs
         self.all_seen_urls = []  # For debugging
 
+    def get_document_html(self, url=None):
+        """
+        Return the captured HTML body for the main document when available.
+
+        The network recorder stores HTML responses in-memory alongside assets.
+        Post-processing can use the original response HTML as a baseline to
+        detect runtime-injected external scripts that should not be persisted.
+        """
+        candidates = []
+
+        def _add_candidate(candidate):
+            if not candidate:
+                return
+            candidates.append(candidate)
+            trimmed = candidate.rstrip('/')
+            if trimmed:
+                candidates.append(trimmed)
+                candidates.append(trimmed + '/')
+
+        _add_candidate(url)
+        _add_candidate(self.base_url)
+
+        seen = set()
+        for candidate in candidates:
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+
+            resource = self.network_resources.get(candidate)
+            if not resource:
+                continue
+
+            content_type = (resource.get('content_type') or '').lower()
+            if 'html' not in content_type:
+                continue
+
+            body = resource.get('body') or b''
+            if not body:
+                continue
+
+            charset_match = re.search(r'charset=([^\s;]+)', content_type)
+            encoding = charset_match.group(1).strip('"\'') if charset_match else 'utf-8'
+
+            try:
+                return body.decode(encoding, errors='ignore')
+            except LookupError:
+                return body.decode('utf-8', errors='ignore')
+
+        return None
+
     def setup_session(self, cookies):
         """Setup requests session with browser cookies"""
         self.session = requests.Session()
@@ -86,6 +211,82 @@ class NetworkRecorder:
         for cookie in cookies:
             self.session.cookies.set(cookie['name'], cookie['value'], domain=cookie.get('domain', ''))
 
+    def _validate_content_type(self, url, content_type, body):
+        """
+        Validate that content-type matches expected file extension.
+        Prevents saving Soft 404s (HTML error pages as .js/.css files).
+
+        Returns False if content is invalid (mismatch detected).
+        """
+        if not content_type or not body:
+            return True  # No validation possible, allow
+
+        ct_lower = content_type.lower().split(';')[0].strip()
+        url_lower = url.lower()
+
+        # CRITICAL: Detect HTML content masquerading as other types (Soft 404)
+        if ct_lower in ('text/html', 'application/xhtml+xml'):
+            # HTML is only valid for .html files or directory endpoints
+            if not (url_lower.endswith(('.html', '.htm')) or url.rstrip('?#').endswith('/')):
+                # Soft 404: server returned HTML error page for a .js/.css request
+                return False
+
+        # Validate JavaScript files - strict check against HTML disguised as JS
+        if url_lower.endswith('.js'):
+            # Content-type must be JS-compatible
+            valid_js_types = ('javascript', 'ecmascript', 'text/plain', 'application/octet-stream')
+
+            # If content-type is explicitly HTML, reject immediately
+            if ct_lower in ('text/html', 'application/xhtml+xml'):
+                return False
+
+            # If content-type is unknown/generic, inspect body
+            if ct_lower in ('', 'application/octet-stream', 'text/plain'):
+                try:
+                    body_start = body[:500].decode('utf-8', errors='ignore').lstrip()
+                    # JS files should NOT start with HTML tags
+                    if body_start.startswith(('<!DOCTYPE', '<html', '<HTML', '<!doctype')):
+                        return False
+                    # Check for common HTML patterns (even without doctype)
+                    if '<head>' in body_start[:200].lower() or '<body>' in body_start[:200].lower():
+                        return False
+                except:
+                    pass
+
+        # Validate CSS files - strict check against HTML disguised as CSS
+        if url_lower.endswith('.css'):
+            # Content-type must be CSS-compatible
+            valid_css_types = ('css', 'text/plain', 'application/octet-stream')
+
+            # If content-type is explicitly HTML, reject immediately
+            if ct_lower in ('text/html', 'application/xhtml+xml'):
+                return False
+
+            # If content-type is unknown/generic, inspect body
+            if ct_lower in ('', 'application/octet-stream', 'text/plain'):
+                try:
+                    body_start = body[:500].decode('utf-8', errors='ignore').lstrip()
+                    # CSS files should NOT start with HTML tags
+                    if body_start.startswith(('<!DOCTYPE', '<html', '<HTML', '<!doctype')):
+                        return False
+                    # Check for common HTML patterns
+                    if '<head>' in body_start[:200].lower() or '<body>' in body_start[:200].lower():
+                        return False
+                except:
+                    pass
+
+        # Validate JSON files (API responses)
+        if 'json' in ct_lower or url_lower.endswith('.json'):
+            # JSON should not start with HTML tags (Soft 404 from API)
+            try:
+                body_start = body[:100].decode('utf-8', errors='ignore').lstrip()
+                if body_start.startswith(('<!DOCTYPE', '<html', '<HTML', '<!doctype')):
+                    return False
+            except:
+                pass
+
+        return True
+
     def _classify_resource(self, content_type, url=''):
         """Classify resource by type for statistics"""
         ct = content_type.lower()
@@ -99,6 +300,8 @@ class NetworkRecorder:
             return 'font'
         elif 'video' in ct or 'audio' in ct:
             return 'media'
+        elif 'json' in ct or url.endswith('.json'):
+            return 'other'  # JSON APIs classified as 'other' for now
         else:
             return 'other'
 
@@ -131,6 +334,12 @@ class NetworkRecorder:
                         from . import MAX_RESOURCE_SIZE
                         if len(body) > MAX_RESOURCE_SIZE:
                             self.ignored_resources.append((url, f'size > {MAX_RESOURCE_SIZE/1024/1024:.0f}MB'))
+                            return
+
+                        # CRITICAL FIX: Validate content-type matches expected file extension
+                        # Prevents saving HTML error pages as .js/.css files
+                        if not self._validate_content_type(url, content_type, body):
+                            self.failed_resources.append((url, 'content-type mismatch'))
                             return
 
                         resource_data = {
@@ -167,10 +376,18 @@ class NetworkRecorder:
             return ext
 
         if content_type:
-            mime = content_type.split(';')[0].strip()
-            guessed = mimetypes.guess_extension(mime)
-            if guessed:
-                return guessed
+            mime = content_type.split(';')[0].strip().lower()
+
+            # Explicit mapping for common API content-types
+            if 'json' in mime:
+                return '.json'
+            elif mime == 'text/plain':
+                # Don't force .txt for plain text - rely on URL
+                pass
+            else:
+                guessed = mimetypes.guess_extension(mime)
+                if guessed:
+                    return guessed
 
         return ''
 
@@ -203,21 +420,43 @@ class NetworkRecorder:
         if path.startswith('assets/'):
             path = path[7:]  # len('assets/') = 7
 
-        # URLs with significant query strings (API endpoints like /_next/image/?url=...)
-        # must use hash-based naming to avoid collisions — skip structure preservation
-        has_significant_query = bool(query) and path.rstrip('/') in (
-            '_next/image', 'image', 'api/image', '_next/static/image'
-        )
+        # Detect API endpoints (REST APIs, GraphQL, etc) by content-type
+        is_api_endpoint = False
+        if content_type:
+            ct_lower = content_type.lower()
+            if 'json' in ct_lower or 'graphql' in ct_lower:
+                is_api_endpoint = True
 
-        # If preserve_structure and path looks like a file path (not an API endpoint)
-        if preserve_structure and path and '/' in path and not has_significant_query:
+        # CRITICAL FIX: Any URL with query strings must use hash-based naming
+        # to avoid collisions. Examples:
+        # - /rest/v1/properties?select=A -> properties_hash1.json
+        # - /rest/v1/properties?select=B -> properties_hash2.json
+        # - /_next/image/?url=X&w=256 -> image_hash3.jpg
+        has_query_string = bool(query)
+
+        def _normalize_host(netloc):
+            return netloc.lower().lstrip('www.')
+
+        # If preserve_structure and path looks like a real file path (no query string, not an API),
+        # preserve the original filename. This keeps runtime relative imports working offline.
+        if preserve_structure and path and not has_query_string and not is_api_endpoint:
             # Strip trailing slash — it's a directory-like URL, not a file
             path_clean = path.rstrip('/')
-            parts = path_clean.split('/')
+            parts = [part for part in path_clean.split('/') if part]
             # Check: last part must have a file extension or be a meaningful name
             last_part = parts[-1] if parts else ''
-            if len(parts) >= 2 and '?' not in path_clean and last_part:
+            if '?' not in path_clean and last_part:
                 clean_parts = []
+                parsed_base = urlparse(self.base_url)
+                same_origin = _normalize_host(parsed.netloc) == _normalize_host(parsed_base.netloc)
+
+                # Cross-origin root-level files need a stable directory to preserve
+                # sibling relative imports without colliding with same-origin assets.
+                if len(parts) == 1 and not same_origin and parsed.netloc:
+                    host_part = re.sub(r'[^a-zA-Z0-9_@.-]', '_', parsed.netloc)[:100]
+                    if host_part:
+                        clean_parts.append(host_part)
+
                 for part in parts:
                     if part == parts[-1]:  # Last part (filename)
                         clean_parts.append(part)
@@ -228,10 +467,19 @@ class NetworkRecorder:
                             clean_parts.append(clean_part)
 
                 if clean_parts:
-                    return '/'.join(clean_parts)
+                    structured_path = '/'.join(clean_parts)
+                    # Ensure JSON API endpoints get .json extension
+                    if is_api_endpoint and not structured_path.endswith('.json'):
+                        structured_path += '.json'
+                    return structured_path
 
         # Fallback: hashed filename — includes full URL (with query) for uniqueness
         ext = self._get_extension(url, content_type)
+
+        # Force .json for API endpoints without extension
+        if is_api_endpoint and not ext:
+            ext = '.json'
+
         url_hash = hashlib.md5(url.encode()).hexdigest()[:12]
 
         name = os.path.basename(path.rstrip('/')) if path.rstrip('/') else 'resource'
@@ -279,12 +527,35 @@ class NetworkRecorder:
         return rel_path
 
     def _download_fallback(self, url):
-        """Download a resource with retry logic (FASE 6: 2 attempts with backoff)"""
+        """
+        Download a resource with retry logic (FASE 6: 2 attempts with backoff).
+
+        CRITICAL FIX: Block API endpoints from fallback downloads.
+        APIs require dynamic headers (Auth tokens, CORS) that requests.get doesn't have.
+        Attempting to download them results in 406/401 errors and pollutes logs.
+        """
         if url in self.resource_cache:
             return self.resource_cache[url]
 
         if not url or url.startswith(('data:', 'blob:', '#')):
             return url
+
+        # CRITICAL: Block API endpoints - they need browser context (auth headers, cookies)
+        # Attempting requests.get on APIs will ALWAYS fail with 406/401/CORS
+        url_lower = url.lower()
+        api_indicators = [
+            'supabase.co',
+            '/rest/v1/',
+            '/api/',
+            '/graphql',
+            'api.',  # api.domain.com
+        ]
+
+        if any(indicator in url_lower for indicator in api_indicators):
+            # This is an API endpoint - don't attempt fallback download
+            # Let the fetch_interceptor handle it with mocks
+            self.log(f"   Bloqueando fallback de API: {url[:80]}...")
+            return None
 
         last_error = None
         for attempt in range(MAX_RETRIES):
@@ -298,6 +569,12 @@ class NetworkRecorder:
                         return None
 
                     content_type = response.headers.get('content-type', '')
+
+                    # CRITICAL FIX: Validate content-type to prevent Soft 404
+                    if not self._validate_content_type(url, content_type, response.content):
+                        self.failed_resources.append((url, 'content-type mismatch (Soft 404)'))
+                        return None
+
                     local_path = self._save_resource(url, response.content, content_type)
                     return local_path
                 else:
@@ -360,6 +637,9 @@ class NetworkRecorder:
 
         # NOVO: pós-processamento de .m3u8 para garantir todos os chunks/variantes
         self.postprocess_m3u8_files()
+
+        # CRITICAL: Extract chunks/assets referenced in JS files (Vite, Next.js, Webpack)
+        self.extract_css_from_js_files()
 
     def ensure_resources_downloaded(self, urls):
         """

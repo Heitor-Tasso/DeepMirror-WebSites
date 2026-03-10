@@ -122,6 +122,16 @@
         return false;
     }
 
+    // Check if URL is external (different origin)
+    function isExternal(url) {
+        try {
+            const urlObj = new URL(url, window.location.href);
+            return urlObj.origin !== window.location.origin;
+        } catch(e) {
+            return false;
+        }
+    }
+
     // Intercept fetch()
     const originalFetch = window.fetch;
     window.fetch = function(url, options) {
@@ -133,9 +143,29 @@
             return originalFetch(localPath, options);
         }
 
-        if (isExternalCDN(url)) {
-            console.warn('[Fetch Interceptor] \u2717 Blocked CDN leak:', url);
-            return Promise.reject(new Error('CDN request blocked: ' + url));
+        // CRITICAL FIX: Block all external requests that have no local mapping
+        // This prevents 406/CORS errors from leaking to real APIs (Supabase, etc)
+        if (isExternal(url)) {
+            console.warn('[Fetch Interceptor] \u2717 Blocked external leak:', url);
+
+            // CRITICAL: Return empty array [] for REST GET endpoints to prevent React crashes
+            // React expects arrays from API list endpoints - returning objects causes .map() errors
+            const method = (options && options.method) || 'GET';
+            let mockData = [];
+
+            // If it looks like a REST API endpoint requesting a list, return empty array
+            if (method.toUpperCase() === 'GET' && url.includes('/rest/')) {
+                mockData = [];
+            } else {
+                // For other requests, fail silently with empty response
+                mockData = null;
+            }
+
+            return Promise.resolve(new Response(JSON.stringify(mockData), {
+                status: 200,
+                statusText: 'OK (Mocked)',
+                headers: { 'Content-Type': 'application/json' }
+            }));
         }
 
         return originalFetch(url, options);
@@ -143,21 +173,59 @@
 
     // Intercept XMLHttpRequest
     const originalOpen = XMLHttpRequest.prototype.open;
+    const originalSend = XMLHttpRequest.prototype.send;
+
     XMLHttpRequest.prototype.open = function(method, url, ...args) {
         const referrer = document.currentScript?.src || window.location.href;
         const localPath = getLocalPath(url, referrer);
+
+        // Store original URL for send() interception
+        this._interceptedUrl = url;
+        this._hasLocalMapping = !!localPath;
 
         if (localPath) {
             console.log('[XHR Interceptor] \u2713', url, '->', localPath);
             return originalOpen.call(this, method, localPath, ...args);
         }
 
-        if (isExternalCDN(url)) {
-            console.warn('[XHR Interceptor] \u2717 Blocked CDN leak:', url);
-            return originalOpen.call(this, method, 'data:text/plain,404', ...args);
+        // CRITICAL FIX: Allow open() to proceed, but intercept send() for external URLs
+        return originalOpen.call(this, method, url, ...args);
+    };
+
+    XMLHttpRequest.prototype.send = function(...args) {
+        // If URL is external and has no local mapping, block and return mock
+        if (this._interceptedUrl && !this._hasLocalMapping && isExternal(this._interceptedUrl)) {
+            console.warn('[XHR Interceptor] \u2717 Blocked external leak:', this._interceptedUrl);
+
+            // CRITICAL: Return empty array [] for REST API to prevent React crashes
+            let mockResponse = '[]';
+            if (this._interceptedUrl.includes('/rest/')) {
+                mockResponse = '[]';
+            }
+
+            // Simulate successful response
+            Object.defineProperty(this, 'status', { value: 200, writable: false });
+            Object.defineProperty(this, 'statusText', { value: 'OK (Mocked)', writable: false });
+            Object.defineProperty(this, 'responseText', {
+                value: mockResponse,
+                writable: false
+            });
+            Object.defineProperty(this, 'response', {
+                value: mockResponse,
+                writable: false
+            });
+            Object.defineProperty(this, 'readyState', { value: 4, writable: false });
+
+            // Trigger load event asynchronously
+            setTimeout(() => {
+                if (this.onload) this.onload({ type: 'load', target: this });
+                if (this.onreadystatechange) this.onreadystatechange({ type: 'readystatechange', target: this });
+            }, 0);
+
+            return;
         }
 
-        return originalOpen.call(this, method, url, ...args);
+        return originalSend.apply(this, args);
     };
 
     console.log('[Fetch Interceptor] Installed with', Object.keys(resourceMap).length, 'mappings');

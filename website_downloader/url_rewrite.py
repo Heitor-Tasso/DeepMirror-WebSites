@@ -154,12 +154,10 @@ class URLRewriter:
                 files_to_process.append(root_manifest)
 
         def _make_relative_path(json_filepath, resource_path):
-            json_dir = os.path.dirname(json_filepath)
-            json_relative = os.path.relpath(json_dir, self.output_dir)
-            if json_relative.startswith('assets') and resource_path.startswith('assets/'):
-                resource_abs = os.path.join(self.output_dir, resource_path)
-                return os.path.relpath(resource_abs, json_dir)
-            return resource_path
+            # JSON values are commonly consumed later by runtime code that resolves
+            # URLs against the current document location, not against the JSON file
+            # itself. Use root-absolute local asset paths to avoid nested-route 404s.
+            return '/' + resource_path.lstrip('/')
 
         def _rewrite_value(value, json_filepath):
             if isinstance(value, str):
@@ -268,7 +266,13 @@ class URLRewriter:
         return re.sub(pattern, _replace, html_content)
 
     def remove_sourcemaps(self):
-        """Remove sourceMappingURL comments from all JS files."""
+        """
+        Remove only trailing sourceMappingURL comments from JS files.
+
+        Some minified bundles generate CSS/source-map comments inside runtime
+        strings. Stripping those inline fragments corrupts the JavaScript, so
+        this cleanup is intentionally limited to real EOF comments only.
+        """
         self.log("🗺️ Removendo sourcemaps...")
         assets_dir = os.path.join(self.output_dir, 'assets')
         cleaned = 0
@@ -282,8 +286,23 @@ class URLRewriter:
                             with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
                                 content = f.read()
 
-                            new_content = re.sub(r'//# sourceMappingURL=.*', '', content)
-                            new_content = re.sub(r'/\*# sourceMappingURL=.*?\*/', '', new_content)
+                            new_content = content
+                            previous_content = None
+
+                            # Remove only true trailing sourcemap comments at EOF.
+                            while new_content != previous_content:
+                                previous_content = new_content
+                                new_content = re.sub(
+                                    r'(?:\r?\n)?//# sourceMappingURL=[^\r\n]*\s*\Z',
+                                    '',
+                                    new_content,
+                                )
+                                new_content = re.sub(
+                                    r'/\*# sourceMappingURL=.*?\*/\s*\Z',
+                                    '',
+                                    new_content,
+                                    flags=re.DOTALL,
+                                )
 
                             if new_content != content:
                                 with open(filepath, 'w', encoding='utf-8') as f:

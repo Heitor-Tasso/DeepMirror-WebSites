@@ -7,7 +7,7 @@ import re
 import json
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup, NavigableString
-from . import TRACKING_SCRIPTS, SMOOTH_SCROLL_LIBS
+from . import TRACKING_SCRIPTS
 from .url_rewrite import URLRewriter, rewrite_css_urls
 
 
@@ -18,6 +18,7 @@ class PostProcessor:
         self.log = log_callback
         self.network = network_recorder
         self.rewriter = URLRewriter(base_url, output_dir, log_callback, network_recorder)
+        self._original_script_urls = None
 
         # Path to the JS interceptor template
         self._interceptor_js_path = os.path.join(
@@ -71,6 +72,24 @@ class PostProcessor:
         """Save final HTML to disk."""
         with open(os.path.join(self.output_dir, 'index.html'), 'w', encoding='utf-8') as f:
             f.write(html_output)
+
+    def _get_original_script_urls(self):
+        """Return the external script URLs present in the original HTML response."""
+        if self._original_script_urls is not None:
+            return self._original_script_urls
+
+        original_html = self.network.get_document_html(self.base_url)
+        if not original_html:
+            self._original_script_urls = None
+            return None
+
+        soup = BeautifulSoup(original_html, 'html.parser')
+        self._original_script_urls = {
+            urljoin(self.base_url, script.get('src'))
+            for script in soup.find_all('script', src=True)
+            if script.get('src')
+        }
+        return self._original_script_urls
 
     # ─────────────────────────────────────────────────────────────────────────
     # DOM transformations
@@ -164,18 +183,9 @@ class PostProcessor:
             head.append(fix_style)
             self.log("   Injetado CSS para corrigir scroll")
 
-        scripts_removed = 0
-        for script in soup.find_all('script'):
-            src = script.get('src', '') or ''
-            text = script.string or ''
-            if any(x in src.lower() for x in SMOOTH_SCROLL_LIBS):
-                script.decompose()
-                scripts_removed += 1
-            elif any(x in text.lower() for x in ['new lenis', 'new locomotivescroll', 'smoothscroll']):
-                script.decompose()
-                scripts_removed += 1
-        if scripts_removed:
-            self.log(f"   Removidos {scripts_removed} scripts de smooth scroll")
+        # Preserve scroll libraries and let the runtime initialize normally.
+        # The minimal CSS override above is enough to prevent hard scroll locks
+        # without breaking controllers such as Lenis/Locomotive.
 
     def _remove_wrapper_iframes(self, soup):
         """Remove preview/wrapper iframes from site builders."""
@@ -228,18 +238,62 @@ class PostProcessor:
                 style_tag.string = rewrite_css_urls(style_tag.string, self.base_url, self.network)
 
     def _process_scripts(self, soup):
-        """Localize external script src attributes."""
+        """
+        Localize external script src attributes.
+
+        CRITICAL FIX: Remove scripts that failed to download to prevent SyntaxError cascades.
+        When a .js file fails to download, the SPA router returns index.html,
+        causing the browser to execute HTML as JavaScript -> SyntaxError.
+        """
         self.log("Processando scripts...")
+
+        scripts_to_remove = []
+        original_script_urls = self._get_original_script_urls()
+        runtime_injected_removed = 0
+
         for script in soup.find_all('script', src=True):
             src = script.get('src')
             if not src or src.startswith('data:'):
                 continue
+
+            absolute_src = urljoin(self.base_url, src)
+
+            # page.content() includes the DOM after loaders have already run.
+            # Persisting runtime-injected <script src> tags makes them execute a
+            # second time offline when the original loader runs again.
+            if original_script_urls is not None and absolute_src not in original_script_urls:
+                scripts_to_remove.append(script)
+                runtime_injected_removed += 1
+                continue
+
             local_path = self.network.get_resource(src)
+
+            # Check if download failed (resource returned unchanged or not localized)
             if local_path and local_path != src:
+                # Success - update src to local path
                 script['src'] = local_path
                 for attr in ['integrity', 'crossorigin', 'nonce']:
                     if script.has_attr(attr):
                         del script[attr]
+            else:
+                # CRITICAL: Download failed - check if it's a critical script
+                # Don't remove tracking scripts (they're expected to fail)
+                from . import SKIP_DOMAINS
+
+                is_tracking = any(domain in src for domain in SKIP_DOMAINS)
+
+                if not is_tracking:
+                    # Non-tracking script that failed to download
+                    # Remove it to prevent SPA router from serving index.html as JS
+                    self.log(f"   ⚠️ Removendo script com download falhado: {src[:80]}...")
+                    scripts_to_remove.append(script)
+
+        # Remove failed scripts from DOM
+        for script in scripts_to_remove:
+            script.decompose()
+
+        if runtime_injected_removed:
+            self.log(f"   Removidos {runtime_injected_removed} scripts injetados em runtime")
 
     def _process_srcset(self, srcset, base=None):
         """Rewrite a srcset attribute value."""

@@ -148,10 +148,79 @@ class BrowserController:
 
         return None, False
 
+    def force_eager_loading(self):
+        """
+        CRITICAL FIX: Force all lazy-loaded images/videos to load immediately.
+
+        Removes loading="lazy" and converts data-src to src to prevent:
+        1. GSAP ScrollTrigger calculating wrong page heights
+        2. Images not loading before Playwright saves the page
+        3. Layout shifts that break animations
+        """
+        self.log("Forçando carregamento eager de todos os recursos lazy...")
+
+        try:
+            modified = self.page.evaluate("""
+                () => {
+                    let count = 0;
+
+                    // 1. Remove loading="lazy" from all images and iframes
+                    document.querySelectorAll('img[loading="lazy"], iframe[loading="lazy"]').forEach(el => {
+                        el.removeAttribute('loading');
+                        count++;
+                    });
+
+                    // 2. Convert data-src/data-lazy to src (common lazy loading pattern)
+                    document.querySelectorAll('img[data-src], img[data-lazy]').forEach(img => {
+                        if (img.hasAttribute('data-src')) {
+                            img.src = img.getAttribute('data-src');
+                            count++;
+                        } else if (img.hasAttribute('data-lazy')) {
+                            img.src = img.getAttribute('data-lazy');
+                            count++;
+                        }
+                    });
+
+                    // 3. Convert data-srcset to srcset
+                    document.querySelectorAll('img[data-srcset], source[data-srcset]').forEach(el => {
+                        if (el.hasAttribute('data-srcset')) {
+                            el.srcset = el.getAttribute('data-srcset');
+                            count++;
+                        }
+                    });
+
+                    // 4. Force video sources to load
+                    document.querySelectorAll('video[data-src], source[data-src]').forEach(el => {
+                        if (el.hasAttribute('data-src')) {
+                            el.src = el.getAttribute('data-src');
+                            count++;
+                        }
+                    });
+
+                    // 5. Trigger IntersectionObserver for all images (force visibility)
+                    document.querySelectorAll('img').forEach(img => {
+                        if (img.loading) img.loading = 'eager';
+                    });
+
+                    return count;
+                }
+            """)
+
+            if modified > 0:
+                self.log(f"   {modified} elemento(s) lazy modificados para eager loading")
+                # Wait for images to start loading
+                self.page.wait_for_timeout(2000)
+
+        except Exception as e:
+            self.log(f"Erro ao forçar eager loading: {e}")
+
     def scroll_page(self):
         """Scroll the page to trigger lazy loading"""
         self.log("Rolando página para carregar conteúdo lazy...")
         try:
+            # CRITICAL: Force eager loading BEFORE scrolling
+            self.force_eager_loading()
+
             # Disable smooth scroll libraries
             self.page.evaluate("""
                 () => {
@@ -213,6 +282,10 @@ class BrowserController:
 
                         const containers = document.querySelectorAll('[data-scroll-container], .scroll-container, main');
                         containers.forEach(c => {{ c.scrollTop = pos; }});
+
+                        // CRITICAL: Trigger resize event to wake up GSAP ScrollTrigger
+                        // This forces ScrollTrigger to recalculate positions with loaded images
+                        window.dispatchEvent(new Event('resize'));
                     }}
                 """, current)
 
@@ -230,9 +303,15 @@ class BrowserController:
                     window.scrollTo(0, 0);
                     document.documentElement.scrollTop = 0;
                     document.body.scrollTop = 0;
+
+                    // CRITICAL: Final resize event to ensure GSAP recalculates everything
+                    // After all images are loaded and page is at top position
+                    setTimeout(() => {
+                        window.dispatchEvent(new Event('resize'));
+                    }, 100);
                 }
             """)
-            self.page.wait_for_timeout(1000)
+            self.page.wait_for_timeout(1500)  # Extra wait for final recalculation
         except Exception as e:
             self.log(f"Erro no scroll: {e}")
 
@@ -402,6 +481,121 @@ class BrowserController:
         except:
             self.log("   Timeout aguardando CSS-in-JS (pode não usar styled-components)")
 
+    def trigger_dynamic_imports(self):
+        """
+        Trigger Next.js/React dynamic imports by simulating route changes and component interactions.
+
+        Next.js uses code splitting - CSS/JS chunks are loaded on-demand when:
+        1. User navigates to a route (client-side routing)
+        2. Components become visible (lazy loading)
+        3. User interacts with dynamic features
+
+        This method simulates these scenarios to force chunk loading.
+        """
+        self.log("🔄 Forçando carregamento de chunks dinâmicos (Next.js/React)...")
+
+        try:
+            # Step 1: Detect framework
+            framework = self.page.evaluate("""
+                () => {
+                    if (window.__NEXT_DATA__) return 'nextjs';
+                    if (window.__NUXT__) return 'nuxt';
+                    if (window.Gatsby) return 'gatsby';
+                    return 'unknown';
+                }
+            """)
+
+            if framework != 'unknown':
+                self.log(f"   Framework detectado: {framework}")
+
+            # Step 2: Use REAL hover on visible interactive elements (Next.js prefetch trigger)
+            # Collect visible links and buttons
+            interactive_elements = self.page.evaluate("""
+                () => {
+                    const elements = [];
+                    // Links (Next.js prefetches on hover)
+                    document.querySelectorAll('a[href]').forEach(el => {
+                        if (el.offsetParent !== null && el.href) {  // visible
+                            const rect = el.getBoundingClientRect();
+                            if (rect.width > 0 && rect.height > 0) {
+                                elements.push({
+                                    selector: `a[href="${el.getAttribute('href')}"]`,
+                                    type: 'link'
+                                });
+                            }
+                        }
+                    });
+                    // Buttons (might trigger dynamic imports)
+                    document.querySelectorAll('button, [role="button"]').forEach((el, idx) => {
+                        if (el.offsetParent !== null) {  // visible
+                            const rect = el.getBoundingClientRect();
+                            if (rect.width > 0 && rect.height > 0) {
+                                // Use data attribute for unique selection
+                                el.setAttribute('data-playwright-idx', idx);
+                                elements.push({
+                                    selector: `[data-playwright-idx="${idx}"]`,
+                                    type: 'button'
+                                });
+                            }
+                        }
+                    });
+                    return elements.slice(0, 50);  // Limit to first 50 elements
+                }
+            """)
+
+            hover_count = 0
+            for elem in interactive_elements:
+                try:
+                    # Use Playwright's real hover (not just dispatchEvent)
+                    self.page.hover(elem['selector'], timeout=1000)
+                    hover_count += 1
+                    # Small delay to allow prefetch to trigger
+                    self.page.wait_for_timeout(100)
+                except Exception:
+                    # Element might have disappeared or become hidden
+                    pass
+
+            if hover_count > 0:
+                self.log(f"   {hover_count} elemento(s) interativo(s) receberam hover real")
+                # Wait for prefetch requests to complete
+                self.page.wait_for_timeout(2000)
+
+            # Step 3: Expand all collapsed sections, accordions, tabs
+            expanded = self.page.evaluate("""
+                () => {
+                    let count = 0;
+                    // Open details/summary elements
+                    document.querySelectorAll('details:not([open])').forEach(d => {
+                        try {
+                            d.open = true;
+                            count++;
+                        } catch(e) {}
+                    });
+
+                    // Expand elements with aria-expanded="false"
+                    document.querySelectorAll('[aria-expanded="false"]').forEach(el => {
+                        try {
+                            if (el.offsetParent !== null) {  // visible
+                                el.click();
+                                count++;
+                            }
+                        } catch(e) {}
+                    });
+
+                    return count;
+                }
+            """)
+            if expanded > 0:
+                self.log(f"   {expanded} elemento(s) expansível(is) ativado(s)")
+                self.page.wait_for_timeout(1500)
+
+            # Step 4: Wait for lazy-loaded resources
+            self.log("   Aguardando recursos lazy-loaded...")
+            self.page.wait_for_timeout(3000)
+
+        except Exception as e:
+            self.log(f"   Erro ao forçar imports dinâmicos: {e}")
+
     def wait_for_network_idle(self, timeout=30000, idle_time=10000):
         """
         Wait for network activity to settle intelligently.
@@ -447,6 +641,49 @@ class BrowserController:
 
             # Small sleep to avoid busy loop
             self.page.wait_for_timeout(100)
+
+    def extract_framework_manifests(self):
+        """
+        CRITICAL FIX: Extract CSS paths from framework manifests (Next.js __BUILD_MANIFEST).
+
+        Next.js doesn't hardcode CSS paths in JS - they're in a runtime manifest object.
+        This method extracts ALL CSS paths directly from the framework before closing the browser.
+        """
+        self.log("Extraindo CSS de manifestos de frameworks (Next.js)...")
+
+        try:
+            css_urls = self.page.evaluate("""
+                () => {
+                    const css = new Set();
+
+                    // Next.js Build Manifest
+                    if (window.__BUILD_MANIFEST) {
+                        Object.values(window.__BUILD_MANIFEST).flat().forEach(f => {
+                            if (typeof f === 'string' && f.endsWith('.css')) {
+                                css.add('/_next/' + f);
+                            }
+                        });
+                    }
+
+                    // Nuxt (if exists)
+                    if (window.__NUXT__ && window.__NUXT__.config && window.__NUXT__.config.css) {
+                        window.__NUXT__.config.css.forEach(f => css.add(f));
+                    }
+
+                    return Array.from(css);
+                }
+            """)
+
+            if css_urls and len(css_urls) > 0:
+                self.log(f"   {len(css_urls)} arquivo(s) CSS encontrados no manifest")
+                return css_urls
+            else:
+                self.log("   Nenhum manifest de framework detectado")
+                return []
+
+        except Exception as e:
+            self.log(f"   Erro ao extrair manifest: {e}")
+            return []
 
     def collect_dynamic_asset_urls(self):
         """

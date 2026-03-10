@@ -73,9 +73,19 @@ class WebsiteDownloader:
         # 6.5. Wait for CSS-in-JS to inject (styled-components, emotion, etc.)
         self.browser.wait_for_css_injection()
 
+        # 6.6. Trigger dynamic imports (Next.js/React code splitting)
+        self.browser.trigger_dynamic_imports()
+
+        # 6.7. CRITICAL: Extract CSS from framework manifests (Next.js __BUILD_MANIFEST)
+        framework_css_urls = self.browser.extract_framework_manifests()
+
         # 7. Coletar todas as URLs de assets presentes no DOM antes de fechar o browser
         self.log("Coletando assets presentes no DOM para fallback...")
         dynamic_asset_urls = self.browser.collect_dynamic_asset_urls()
+
+        # 7.5. Merge framework CSS with dynamic assets
+        if framework_css_urls:
+            dynamic_asset_urls.extend(framework_css_urls)
 
         # 8. Get final HTML
         if is_iframe and iframe_content:
