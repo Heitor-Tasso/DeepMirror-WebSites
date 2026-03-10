@@ -19,6 +19,7 @@ class PostProcessor:
         self.network = network_recorder
         self.rewriter = URLRewriter(base_url, output_dir, log_callback, network_recorder)
         self._original_script_urls = None
+        self._original_html_soup = None
 
         # Path to the JS interceptor template
         self._interceptor_js_path = os.path.join(
@@ -35,6 +36,9 @@ class PostProcessor:
         soup = BeautifulSoup(html_content, 'html.parser')
 
         # DOM-level transformations
+        self._cleanup_runtime_dom_state(soup)
+        self._restore_original_svg_transforms(soup)
+        self._restore_original_style_tags(soup)
         self._remove_canvas_snapshots(soup)
         self._fix_scroll_blocking(soup)
         self._remove_wrapper_iframes(soup)
@@ -75,21 +79,32 @@ class PostProcessor:
 
     def _get_original_script_urls(self):
         """Return the external script URLs present in the original HTML response."""
-        if self._original_script_urls is not None:
-            return self._original_script_urls
-
-        original_html = self.network.get_document_html(self.base_url)
-        if not original_html:
+        original_soup = self._get_original_html_soup()
+        if not original_soup:
             self._original_script_urls = None
             return None
 
-        soup = BeautifulSoup(original_html, 'html.parser')
+        if self._original_script_urls is not None:
+            return self._original_script_urls
+
         self._original_script_urls = {
             urljoin(self.base_url, script.get('src'))
-            for script in soup.find_all('script', src=True)
+            for script in original_soup.find_all('script', src=True)
             if script.get('src')
         }
         return self._original_script_urls
+
+    def _get_original_html_soup(self):
+        """Return the original HTML response parsed as BeautifulSoup."""
+        if self._original_html_soup is not None:
+            return self._original_html_soup
+
+        original_html = self.network.get_document_html(self.base_url)
+        if not original_html:
+            return None
+
+        self._original_html_soup = BeautifulSoup(original_html, 'html.parser')
+        return self._original_html_soup
 
     # ─────────────────────────────────────────────────────────────────────────
     # DOM transformations
@@ -105,6 +120,191 @@ class PostProcessor:
                 removed += 1
         if removed:
             self.log(f"   Removidos {removed} canvas renderizados (Playwright snapshots)")
+
+    def _cleanup_runtime_dom_state(self, soup):
+        """
+        Remove transient runtime flags/styles saved by page.content().
+
+        These markers are useful while the live page is running, but persisting
+        them into the offline HTML can block re-initialization on the next load.
+        """
+        initialized_attrs_removed = 0
+        animation_play_state_removed = 0
+        transform_style_resets = 0
+
+        transient_style_props = {'translate', 'rotate', 'scale', 'transform-origin'}
+
+        for element in soup.find_all(True):
+            for attr in list(element.attrs.keys()):
+                if attr.endswith('-initialized'):
+                    del element[attr]
+                    initialized_attrs_removed += 1
+
+            style = element.get('style')
+            if not style:
+                continue
+
+            declarations = []
+            for raw_decl in style.split(';'):
+                if ':' not in raw_decl:
+                    continue
+                key, value = raw_decl.split(':', 1)
+                key = key.strip().lower()
+                value = value.strip()
+                if not key:
+                    continue
+                declarations.append((key, value))
+
+            if not declarations:
+                continue
+
+            kept = [(key, value) for key, value in declarations if key != 'animation-play-state']
+            if len(kept) != len(declarations):
+                animation_play_state_removed += 1
+
+            # GSAP often leaves transform bookkeeping inline after the initial
+            # run. If those are the only persisted styles, drop them so the next
+            # runtime can compute its own clean baseline.
+            if kept and all(key in transient_style_props for key, _ in kept):
+                element.attrs.pop('style', None)
+                transform_style_resets += 1
+                continue
+
+            if kept:
+                element['style'] = '; '.join(f"{key}: {value}" for key, value in kept) + ';'
+            else:
+                element.attrs.pop('style', None)
+
+        if initialized_attrs_removed:
+            self.log(f"   Removidos {initialized_attrs_removed} flags de inicialização em runtime")
+        if animation_play_state_removed:
+            self.log(f"   Limpos {animation_play_state_removed} estados transitórios de animation-play-state")
+        if transform_style_resets:
+            self.log(f"   Limpos {transform_style_resets} estilos transitórios de transform do runtime")
+
+    def _element_dom_path(self, element):
+        """Build a stable nth-of-type DOM path for matching original/current nodes."""
+        parts = []
+        current = element
+
+        while current and getattr(current, 'name', None):
+            parent = getattr(current, 'parent', None)
+            index = 1
+
+            if parent and getattr(parent, 'children', None):
+                for sibling in parent.children:
+                    if getattr(sibling, 'name', None) != current.name:
+                        continue
+                    if sibling is current:
+                        break
+                    index += 1
+
+            parts.append(f"{current.name}:{index}")
+            current = parent if getattr(parent, 'name', None) else None
+
+        return tuple(reversed(parts))
+
+    def _restore_original_svg_transforms(self, soup):
+        """
+        Restore SVG transform attributes to their original server-rendered state.
+
+        Runtime animation libraries often persist matrix transforms into the DOM.
+        If those transforms did not exist in the original HTML response, the next
+        offline load starts from an already-mutated SVG state and animations drift.
+        """
+        original_soup = self._get_original_html_soup()
+        if not original_soup:
+            return
+
+        original_lookup = {}
+        for original_elem in original_soup.find_all(True):
+            if original_elem.name != 'svg' and not original_elem.find_parent('svg'):
+                continue
+            original_lookup[self._element_dom_path(original_elem)] = original_elem
+
+        restored = 0
+        for current_elem in soup.find_all(True):
+            if not current_elem.has_attr('transform'):
+                continue
+            if current_elem.name != 'svg' and not current_elem.find_parent('svg'):
+                continue
+
+            original_elem = original_lookup.get(self._element_dom_path(current_elem))
+            if not original_elem:
+                continue
+
+            original_transform = original_elem.get('transform')
+            current_transform = current_elem.get('transform')
+            if original_transform == current_transform:
+                continue
+
+            if original_transform is None:
+                del current_elem['transform']
+            else:
+                current_elem['transform'] = original_transform
+            restored += 1
+
+        if restored:
+            self.log(f"   Restaurados {restored} transforms SVG do HTML original")
+
+    def _restore_original_style_tags(self, soup):
+        """
+        Restore critical inline <style> tags from the original HTML response.
+
+        CSS-in-JS libraries may leave placeholder tags in the hydrated DOM while
+        the real server-rendered CSS still exists in the original HTML response.
+        """
+        original_soup = self._get_original_html_soup()
+        if not original_soup:
+            return
+
+        head = soup.find('head')
+        original_head = original_soup.find('head')
+        if not head or not original_head:
+            return
+
+        restored = 0
+        current_styles = head.find_all('style')
+
+        def _style_signature(tag):
+            return tuple(sorted((key, str(value)) for key, value in tag.attrs.items()))
+
+        current_by_sig = {}
+        for style_tag in current_styles:
+            current_by_sig.setdefault(_style_signature(style_tag), []).append(style_tag)
+
+        for original_style in original_head.find_all('style'):
+            original_css = original_style.get_text() or ''
+            if not original_css.strip():
+                continue
+
+            signature = _style_signature(original_style)
+            candidates = current_by_sig.get(signature, [])
+            replaced = False
+
+            for candidate in candidates:
+                candidate_css = candidate.get_text() or ''
+                if candidate_css.strip():
+                    replaced = True
+                    break
+                candidate.clear()
+                candidate.append(NavigableString(original_css))
+                restored += 1
+                replaced = True
+                break
+
+            if replaced:
+                continue
+
+            new_style = soup.new_tag('style')
+            for key, value in original_style.attrs.items():
+                new_style[key] = value
+            new_style.append(NavigableString(original_css))
+            head.append(new_style)
+            restored += 1
+
+        if restored:
+            self.log(f"   Restaurados {restored} blocos <style> críticos do HTML original")
 
     def _fix_scroll_blocking(self, soup):
         """Remove scroll-blocking classes/attrs and inject minimal scroll-fix CSS."""
@@ -136,13 +336,6 @@ class PostProcessor:
             if new_cls != classes:
                 body['class'] = new_cls
 
-        for elem in soup.find_all(class_=lambda c: c and any(
-            x in str(c).lower() for x in ['scroll-container', 'smooth-scroll', 'lenis', 'locomotive']
-        )):
-            for attr in list(elem.attrs.keys()):
-                if 'scroll' in attr.lower() or 'lenis' in attr.lower():
-                    del elem[attr]
-
         scroll_fix_css = """
         /* Scroll fixes - MINIMAL SCOPE */
         html, body {
@@ -155,23 +348,6 @@ class PostProcessor:
         .loader, .preloader, .loading, [class*="loader"], [class*="preloader"] {
             display: none !important;
             opacity: 0 !important;
-        }
-        html.lenis, html.lenis-smooth,
-        body.lenis, body.lenis-smooth,
-        .lenis-wrapper, .lenis-content,
-        [data-lenis-prevent], [data-scroll-container] {
-            overflow: visible !important;
-            height: auto !important;
-        }
-        body.flex.items-center,
-        body.flex.justify-center {
-            align-items: flex-start !important;
-            min-height: 100vh;
-            height: auto !important;
-        }
-        main, #__next, #__nuxt, #app, .main-content {
-            overflow: visible !important;
-            height: auto !important;
         }
         """
 
@@ -474,7 +650,7 @@ class PostProcessor:
         return False
 
     def _handle_spa_frameworks(self, soup):
-        """Remove only inline hydration scripts from SPAs (Gatsby, Next.js, Nuxt)."""
+        """Preserve framework hydration/runtime scripts for offline execution."""
         is_gatsby = soup.find(id='___gatsby') is not None
         is_nextjs = soup.find(id='__next') is not None or self._detect_nextjs(soup)
         is_nuxt = soup.find(id='__nuxt') is not None
@@ -483,18 +659,7 @@ class PostProcessor:
             return
 
         framework = 'Gatsby' if is_gatsby else ('Next.js' if is_nextjs else 'Nuxt')
-        self.log(f"🛡️ Detectado {framework} - removendo APENAS scripts de hydration...")
-
-        removed = 0
-        for script in soup.find_all('script'):
-            if script.get('src'):
-                continue
-            text = script.string or ''
-            if any(marker in text for marker in ['self.__next_f', '__NEXT_DATA__', 'GATSBY___', '__NUXT__']):
-                script.decompose()
-                removed += 1
-
-        self.log(f"   Removidos {removed} scripts de hydration do {framework}")
+        self.log(f"🛡️ Detectado {framework} - preservando scripts de hydration/runtime")
 
     def _remove_preconnects(self, soup):
         """Remove preconnect and dns-prefetch links (useless offline)."""

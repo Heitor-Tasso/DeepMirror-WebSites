@@ -4,6 +4,33 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 
 ## [Unreleased]
 
+### Fixed - Etapa de Manutenção: Captura Runtime e Integridade de Assets
+
+- **Contexto**: Correções focadas nos sites `beda.imb.br`, `osmo.supply` e na robustez geral do pipeline de captura via runtime.
+- **Arquivos**:
+  - `website_downloader/network.py`
+  - `website_downloader/post_process.py`
+  - `website_downloader/url_rewrite.py`
+
+- **Melhorias implementadas**:
+  - **Preservação de nomes reais de chunks/assets**: arquivos top-level passaram a ser salvos com o nome original quando não são endpoints com query/API, evitando 404 em imports dinâmicos offline.
+  - **Extração genérica de assets a partir de bundles JS**: o scanner de referências literais em `.js` foi ampliado para baixar chunks JS/CSS e outros assets sem depender de parse específico de framework.
+  - **Normalização correta de paths root-relative dentro de JS**: referências como `assets/...`, `_next/...` e `static/...` agora resolvem contra a base do site, evitando URLs inválidas do tipo `assets/assets/...`.
+  - **Baseline do HTML original capturado da rede**: o pós-processamento agora distingue scripts realmente presentes no documento original de scripts injetados em runtime, evitando reexecução duplicada offline.
+  - **Remoção segura apenas de scripts injetados em runtime**: widgets/scripts anexados dinamicamente ao DOM não são mais persistidos cegamente no HTML final quando isso causa dupla inicialização offline.
+  - **Reescrita segura de sourcemaps**: remoção de `sourceMappingURL` limitada a comentários reais no fim do arquivo, evitando corromper bundles minificados.
+  - **Reescrita de JSON para assets locais absolutos**: valores de URLs em respostas JSON/manifest agora apontam para paths locais root-absolute, evitando 404 em recursos consumidos por runtime.
+  - **Preservação de bibliotecas de scroll/runtime**: o pós-processamento deixou de remover bibliotecas como Lenis/Locomotive, mantendo o runtime original e usando apenas CSS mínimo para desbloqueio de scroll.
+  - **Escopo mínimo real no scroll fix**: o CSS injetado passou a atuar apenas em `html/body` e loaders, deixando wrappers, `main` e containers de scroll do site intactos.
+  - **Restauração de transforms SVG a partir do HTML original**: atributos `transform="matrix(...)"` persistidos pelo runtime em elementos SVG agora são restaurados ao estado server-rendered antes do replay offline.
+  - **Preservação do hydration do App Router do Next.js**: scripts inline como `self.__next_f.push(...)` não são mais removidos do HTML salvo.
+  - **Restauração de CSS crítico server-rendered**: blocos `<style>` do HTML original passam a ser reaproveitados quando o DOM hidratado contém placeholders vazios de CSS-in-JS.
+
+- **Validação prática nesta etapa**:
+  - `beda.imb.br`: imports dinâmicos e imagens de `/storage/...` passaram a carregar corretamente offline.
+  - `osmo.supply`: erros de JS corrompido e dupla inicialização de widgets foram eliminados; `data-radial-marquee-rotate` voltou a rodar e o `data-footer-logo-wrap` passou a zerar corretamente no fim da página offline.
+  - `pocketchangethe.world`: hydration do Next e CSS crítico voltaram ao HTML salvo; a página offline deixou de abrir branca e voltou a carregar estrutura, estilos e scroll sem erros de página.
+
 ### Fixed - Bug 2.0: Canva do site Landonorris Duplicado ✅
 
 - **Problema**: O Playwright salva o HTML depois do Three.js já ter criado o canvas. Quando recarregamos offline, o script roda novamente e cria outro canvas.
