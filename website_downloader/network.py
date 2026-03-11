@@ -194,6 +194,32 @@ class NetworkRecorder:
             except LookupError:
                 return body.decode('utf-8', errors='ignore')
 
+        # Fallback: refetch the main document with the browser session cookies.
+        # Some sites mutate the DOM heavily and the network recorder may miss the
+        # initial document body for comparison purposes, but post-processing still
+        # needs the original server HTML to detect runtime-only scripts/nodes.
+        if self.session:
+            for candidate in candidates:
+                if not candidate:
+                    continue
+                parsed = urlparse(candidate)
+                if parsed.scheme not in {'http', 'https'}:
+                    continue
+
+                try:
+                    response = self.session.get(candidate, timeout=15, verify=False)
+                except Exception:
+                    continue
+
+                if response.status_code != 200:
+                    continue
+
+                content_type = (response.headers.get('content-type') or '').lower()
+                if 'html' not in content_type:
+                    continue
+
+                return response.text
+
         return None
 
     def setup_session(self, cookies):

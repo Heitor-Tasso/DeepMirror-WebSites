@@ -22,14 +22,18 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
   - **Reescrita de JSON para assets locais absolutos**: valores de URLs em respostas JSON/manifest agora apontam para paths locais root-absolute, evitando 404 em recursos consumidos por runtime.
   - **Preservação de bibliotecas de scroll/runtime**: o pós-processamento deixou de remover bibliotecas como Lenis/Locomotive, mantendo o runtime original e usando apenas CSS mínimo para desbloqueio de scroll.
   - **Escopo mínimo real no scroll fix**: o CSS injetado passou a atuar apenas em `html/body` e loaders, deixando wrappers, `main` e containers de scroll do site intactos.
+  - **Serialização de CSSOM antes de capturar o HTML**: regras criadas dinamicamente em `<style>` pelo runtime agora são materializadas no DOM antes do `page.content()`, preservando CSS-in-JS e estilos gerados em tempo de execução.
+  - **Restauração de estilos inline server-rendered**: atributos `style` mutados por animações e bibliotecas de reveal passam a ser revertidos ao estado original do HTML de rede antes do replay offline.
   - **Restauração de transforms SVG a partir do HTML original**: atributos `transform="matrix(...)"` persistidos pelo runtime em elementos SVG agora são restaurados ao estado server-rendered antes do replay offline.
   - **Preservação do hydration do App Router do Next.js**: scripts inline como `self.__next_f.push(...)` não são mais removidos do HTML salvo.
   - **Restauração de CSS crítico server-rendered**: blocos `<style>` do HTML original passam a ser reaproveitados quando o DOM hidratado contém placeholders vazios de CSS-in-JS.
+  - **Materialização de SDKs externos pré-carregados**: `<link rel="preload">` e `<link rel="modulepreload">` que apontam para scripts externos já capturados passam a virar `<script src=...>` reais no HTML final quando o runtime original dependia dessa etapa para inicialização.
+  - **Deduplicação segura de placeholders CSS-in-JS**: placeholders vazios gerados na hidratação deixam de coexistir com blocos restaurados, evitando duplicidade e competição entre estilos críticos.
 
 - **Validação prática nesta etapa**:
-  - `beda.imb.br`: imports dinâmicos e imagens de `/storage/...` passaram a carregar corretamente offline.
-  - `osmo.supply`: erros de JS corrompido e dupla inicialização de widgets foram eliminados; `data-radial-marquee-rotate` voltou a rodar e o `data-footer-logo-wrap` passou a zerar corretamente no fim da página offline.
-  - `pocketchangethe.world`: hydration do Next e CSS crítico voltaram ao HTML salvo; a página offline deixou de abrir branca e voltou a carregar estrutura, estilos e scroll sem erros de página.
+  - `beda.imb.br`: imports dinâmicos e imagens de `/storage/...` passaram a carregar corretamente offline; etapa considerada fechada após validação manual.
+  - `osmo.supply`: erros de JS corrompido e dupla inicialização de widgets foram eliminados; `data-radial-marquee-rotate` voltou a rodar e o `data-footer-logo-wrap` passou a zerar corretamente no fim da página offline; etapa considerada fechada após validação manual.
+  - `pocketchangethe.world`: hydration do Next e CSS crítico voltaram ao HTML salvo; o popup de cookies recuperou o CSS runtime, a cena principal do hero voltou a montar offline e a página deixou de abrir branca, mas a paridade visual total ainda segue em investigação.
 
 ### Fixed - Bug 2.0: Canva do site Landonorris Duplicado ✅
 

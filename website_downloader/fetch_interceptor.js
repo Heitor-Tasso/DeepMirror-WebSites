@@ -75,13 +75,17 @@
 
     // Main lookup: find local path for any URL
     function getLocalPath(url, referrer) {
+        const rawUrl = typeof url === 'string'
+            ? url
+            : (url && typeof url === 'object' && url.url ? url.url : String(url || ''));
+
         // 1. Relative paths (./x, ../x) - resolve via referrer
-        if (url.startsWith('./') || url.startsWith('../')) {
-            const resolved = resolveRelativePath(url, referrer);
+        if (rawUrl.startsWith('./') || rawUrl.startsWith('../')) {
+            const resolved = resolveRelativePath(rawUrl, referrer);
             if (resolved) return resolved;
         }
 
-        const normalized = normalizeUrl(url, referrer);
+        const normalized = normalizeUrl(rawUrl, referrer);
 
         // 2. Exact match in resource map
         if (resourceMap[normalized]) return resourceMap[normalized];
@@ -112,7 +116,7 @@
     // Block requests to external CDNs that have no local copy
     function isExternalCDN(url) {
         try {
-            const urlObj = new URL(url, window.location.href);
+            const urlObj = new URL(normalizeUrl(url, window.location.href), window.location.href);
             if (urlObj.origin !== window.location.origin) {
                 const hostname = urlObj.hostname.toLowerCase();
                 const cdnMarkers = ['.b-cdn.', 'cdn.', '.cloudfront.', '.akamai', '.fastly.'];
@@ -125,17 +129,171 @@
     // Check if URL is external (different origin)
     function isExternal(url) {
         try {
-            const urlObj = new URL(url, window.location.href);
+            const urlObj = new URL(normalizeUrl(url, window.location.href), window.location.href);
             return urlObj.origin !== window.location.origin;
         } catch(e) {
             return false;
         }
     }
 
+    function isTrackingEndpoint(url) {
+        try {
+            const urlObj = new URL(normalizeUrl(url, window.location.href), window.location.href);
+            const hostname = urlObj.hostname.toLowerCase();
+            const path = (urlObj.pathname || '').toLowerCase();
+            const combined = `${hostname}${path}`;
+            const markers = [
+                'monorail',
+                'api/collect',
+                '/collect',
+                'web-pixels',
+                'webpixels',
+                'web-pixel',
+                '/pixel',
+                'pixel.',
+                'shopifycloud/web-pixels-manager',
+                'hotjar',
+                'klaviyo',
+                'cookiebot',
+                'consentcdn',
+            ];
+            return markers.some(marker => combined.includes(marker));
+        } catch(e) {
+            return false;
+        }
+    }
+
+    function buildMockResponse(url, method) {
+        let mockData = {};
+        if ((method || 'GET').toUpperCase() === 'GET' && String(url).includes('/rest/')) {
+            mockData = [];
+        }
+        return new Response(JSON.stringify(mockData), {
+            status: 200,
+            statusText: 'OK (Mocked)',
+            headers: { 'Content-Type': 'application/json' }
+        });
+    }
+
+    function toComparableUrl(url) {
+        if (!url) return '';
+        try {
+            return new URL(url, window.location.href).href;
+        } catch (e) {
+            return String(url);
+        }
+    }
+
+    function hasExistingAsset(tagName, attrName, url) {
+        const comparableTarget = toComparableUrl(url);
+        if (!comparableTarget) return false;
+
+        const elements = tagName === 'script'
+            ? Array.from(document.scripts || [])
+            : Array.from(document.querySelectorAll(tagName));
+
+        return elements.some((element) => {
+            const currentValue = element.getAttribute(attrName) || element[attrName] || '';
+            return currentValue && toComparableUrl(currentValue) === comparableTarget;
+        });
+    }
+
+    function neutralizeDuplicateNode(node, kind, url) {
+        node.setAttribute('data-interceptor-duplicate', 'true');
+
+        if (kind === 'script') {
+            node.removeAttribute('src');
+            node.type = 'application/json';
+        } else if (kind === 'link') {
+            node.removeAttribute('href');
+            node.setAttribute('data-interceptor-disabled', 'true');
+        }
+
+        setTimeout(() => {
+            const loadEvent = new Event('load');
+            if (typeof node.onload === 'function') {
+                try { node.onload(loadEvent); } catch (e) {}
+            }
+            try { node.dispatchEvent(loadEvent); } catch (e) {}
+        }, 0);
+
+        console.log('[DOM Interceptor] = Duplicate', kind, url);
+        return node;
+    }
+
+    function rewriteDynamicElement(node) {
+        if (!node || !node.tagName) return node;
+
+        const tagName = node.tagName.toLowerCase();
+        if (tagName === 'script') {
+            const originalSrc = node.getAttribute('src') || node.src;
+            if (!originalSrc) return node;
+
+            const localPath = getLocalPath(originalSrc, window.location.href);
+            const targetSrc = localPath || originalSrc;
+            if (hasExistingAsset('script', 'src', targetSrc)) {
+                return neutralizeDuplicateNode(node, 'script', targetSrc);
+            }
+
+            if (localPath && localPath !== originalSrc) {
+                node.setAttribute('src', localPath);
+                console.log('[DOM Interceptor] \u2713 script', originalSrc, '->', localPath);
+                return node;
+            }
+
+            if (isTrackingEndpoint(originalSrc) || (isExternal(originalSrc) && isExternalCDN(originalSrc))) {
+                node.removeAttribute('src');
+                node.type = 'application/json';
+                console.warn('[DOM Interceptor] \u2717 Blocked dynamic script:', originalSrc);
+            }
+            return node;
+        }
+
+        if (tagName === 'link') {
+            const rel = (node.getAttribute('rel') || '').toLowerCase();
+            if (!rel || !['preload', 'prefetch', 'modulepreload', 'stylesheet'].some(value => rel.includes(value))) {
+                return node;
+            }
+
+            const originalHref = node.getAttribute('href') || node.href;
+            if (!originalHref) return node;
+
+            const localPath = getLocalPath(originalHref, window.location.href);
+            const targetHref = localPath || originalHref;
+            if (hasExistingAsset('link', 'href', targetHref)) {
+                return neutralizeDuplicateNode(node, 'link', targetHref);
+            }
+
+            if (localPath && localPath !== originalHref) {
+                node.setAttribute('href', localPath);
+                console.log('[DOM Interceptor] \u2713 link', originalHref, '->', localPath);
+                return node;
+            }
+        }
+
+        return node;
+    }
+
+    const originalAppendChild = Node.prototype.appendChild;
+    Node.prototype.appendChild = function(node) {
+        return originalAppendChild.call(this, rewriteDynamicElement(node));
+    };
+
+    const originalInsertBefore = Node.prototype.insertBefore;
+    Node.prototype.insertBefore = function(node, referenceNode) {
+        return originalInsertBefore.call(this, rewriteDynamicElement(node), referenceNode);
+    };
+
+    const originalReplaceChild = Node.prototype.replaceChild;
+    Node.prototype.replaceChild = function(newChild, oldChild) {
+        return originalReplaceChild.call(this, rewriteDynamicElement(newChild), oldChild);
+    };
+
     // Intercept fetch()
     const originalFetch = window.fetch;
     window.fetch = function(url, options) {
         const referrer = (options && options.referrer) || document.currentScript?.src || window.location.href;
+        const method = (options && options.method) || 'GET';
         const localPath = getLocalPath(url, referrer);
 
         if (localPath) {
@@ -143,29 +301,16 @@
             return originalFetch(localPath, options);
         }
 
+        if (isTrackingEndpoint(url)) {
+            console.warn('[Fetch Interceptor] \u2717 Blocked tracking call:', url);
+            return Promise.resolve(buildMockResponse(url, method));
+        }
+
         // CRITICAL FIX: Block all external requests that have no local mapping
         // This prevents 406/CORS errors from leaking to real APIs (Supabase, etc)
         if (isExternal(url)) {
             console.warn('[Fetch Interceptor] \u2717 Blocked external leak:', url);
-
-            // CRITICAL: Return empty array [] for REST GET endpoints to prevent React crashes
-            // React expects arrays from API list endpoints - returning objects causes .map() errors
-            const method = (options && options.method) || 'GET';
-            let mockData = [];
-
-            // If it looks like a REST API endpoint requesting a list, return empty array
-            if (method.toUpperCase() === 'GET' && url.includes('/rest/')) {
-                mockData = [];
-            } else {
-                // For other requests, fail silently with empty response
-                mockData = null;
-            }
-
-            return Promise.resolve(new Response(JSON.stringify(mockData), {
-                status: 200,
-                statusText: 'OK (Mocked)',
-                headers: { 'Content-Type': 'application/json' }
-            }));
+            return Promise.resolve(buildMockResponse(url, method));
         }
 
         return originalFetch(url, options);
@@ -194,24 +339,24 @@
 
     XMLHttpRequest.prototype.send = function(...args) {
         // If URL is external and has no local mapping, block and return mock
-        if (this._interceptedUrl && !this._hasLocalMapping && isExternal(this._interceptedUrl)) {
-            console.warn('[XHR Interceptor] \u2717 Blocked external leak:', this._interceptedUrl);
-
-            // CRITICAL: Return empty array [] for REST API to prevent React crashes
-            let mockResponse = '[]';
-            if (this._interceptedUrl.includes('/rest/')) {
-                mockResponse = '[]';
+        if (this._interceptedUrl && !this._hasLocalMapping && (
+            isTrackingEndpoint(this._interceptedUrl) || isExternal(this._interceptedUrl)
+        )) {
+            if (isTrackingEndpoint(this._interceptedUrl)) {
+                console.warn('[XHR Interceptor] \u2717 Blocked tracking call:', this._interceptedUrl);
+            } else {
+                console.warn('[XHR Interceptor] \u2717 Blocked external leak:', this._interceptedUrl);
             }
 
             // Simulate successful response
             Object.defineProperty(this, 'status', { value: 200, writable: false });
             Object.defineProperty(this, 'statusText', { value: 'OK (Mocked)', writable: false });
             Object.defineProperty(this, 'responseText', {
-                value: mockResponse,
+                value: this._interceptedUrl.includes('/rest/') ? '[]' : '{}',
                 writable: false
             });
             Object.defineProperty(this, 'response', {
-                value: mockResponse,
+                value: this._interceptedUrl.includes('/rest/') ? '[]' : '{}',
                 writable: false
             });
             Object.defineProperty(this, 'readyState', { value: 4, writable: false });

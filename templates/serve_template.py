@@ -36,6 +36,22 @@ MIME_TYPES = {
 class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     """Custom handler with CORS and special MIME types"""
 
+    def _asset_alias_path(self, request_path):
+        """Map root-relative asset requests to the saved assets/ mirror."""
+        if not request_path or request_path.startswith('/assets/'):
+            return None
+
+        normalized = request_path if request_path.startswith('/') else f'/{request_path}'
+        return f'/assets{normalized}'
+
+    def _send_empty(self, status=204, content_type='application/json', body=b''):
+        self.send_response(status)
+        self.send_header('Content-Type', content_type)
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
+
     def do_GET(self):
         """
         Serve files with basename-prefix fallback for hash-suffixed filenames.
@@ -46,8 +62,20 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         imports and any other request that uses the original filename while the
         saved file has a hash suffix appended by the downloader.
         """
-        path = self.translate_path(self.path)
+        if self.path.startswith('/.well-known/appspecific/'):
+            self._send_empty()
+            return
+
+        resolved_request_path = self.path
+        path = self.translate_path(resolved_request_path)
         if not os.path.isfile(path):
+            asset_alias = self._asset_alias_path(resolved_request_path)
+            if asset_alias:
+                alias_path = self.translate_path(asset_alias)
+                if os.path.isfile(alias_path):
+                    resolved_request_path = asset_alias
+                    path = alias_path
+
             filename = os.path.basename(path)
             directory = os.path.dirname(path)
             if '.' in filename and os.path.isdir(directory):
@@ -60,8 +88,18 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                     and os.path.splitext(f)[0].startswith(stem + '_')
                 ]
                 if len(candidates) == 1:
-                    self.path = os.path.join(os.path.dirname(self.path), candidates[0])
+                    resolved_request_path = os.path.join(os.path.dirname(resolved_request_path), candidates[0])
+        self.path = resolved_request_path
         super().do_GET()
+
+    def do_OPTIONS(self):
+        self._send_empty()
+
+    def do_POST(self):
+        content_length = int(self.headers.get('Content-Length', '0') or '0')
+        if content_length > 0:
+            self.rfile.read(content_length)
+        self._send_empty(status=200, body=b'{}')
 
     def end_headers(self):
         # CORS headers for local development

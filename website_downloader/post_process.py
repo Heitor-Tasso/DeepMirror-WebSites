@@ -5,7 +5,7 @@ File-based URL rewriting is handled by url_rewrite.URLRewriter.
 import os
 import re
 import json
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup, NavigableString
 from . import TRACKING_SCRIPTS
 from .url_rewrite import URLRewriter, rewrite_css_urls
@@ -33,10 +33,18 @@ class PostProcessor:
     def process_html(self, html_content):
         """Apply all HTML transformations and trigger file-based rewriting."""
         self.log("🔧 Processando HTML e assets...")
-        soup = BeautifulSoup(html_content, 'html.parser')
+        baseline_html = self._select_document_baseline(html_content)
+        soup = BeautifulSoup(baseline_html, 'html.parser')
+        is_ssr_framework = self._is_ssr_framework(soup)
 
         # DOM-level transformations
         self._cleanup_runtime_dom_state(soup)
+        if is_ssr_framework:
+            if self._should_prune_runtime_nodes(soup):
+                self._prune_runtime_only_nodes(soup)
+            self._restore_empty_runtime_hosts(soup)
+        self._restore_missing_original_support_nodes(soup)
+        self._restore_original_inline_styles(soup)
         self._restore_original_svg_transforms(soup)
         self._restore_original_style_tags(soup)
         self._remove_canvas_snapshots(soup)
@@ -54,7 +62,11 @@ class PostProcessor:
         self._handle_spa_frameworks(soup)
         self._remove_preconnects(soup)
         self._process_preloads(soup)
+        self._inject_external_preload_bootstrap(soup)
         self._remove_tracking_scripts(soup)
+        self._remove_tracking_widgets(soup)
+        self._inject_import_map(soup)
+        self._inject_shopify_bootstrap(soup)
 
         # Inject fetch interceptor before serializing
         self._inject_fetch_interceptor(soup)
@@ -76,6 +88,49 @@ class PostProcessor:
         """Save final HTML to disk."""
         with open(os.path.join(self.output_dir, 'index.html'), 'w', encoding='utf-8') as f:
             f.write(html_output)
+
+    def _body_has_meaningful_ssr_content(self, soup):
+        """Heuristic to detect whether the original HTML already contains useful body markup."""
+        body = soup.find('body')
+        if not body:
+            return False
+
+        element_children = [child for child in body.children if getattr(child, 'name', None)]
+        if len(element_children) >= 3:
+            return True
+
+        text_content = ' '.join(body.stripped_strings)
+        return len(text_content) >= 200
+
+    def _select_document_baseline(self, html_content):
+        """
+        Choose the safest HTML baseline for post-processing.
+
+        For SSR frameworks, page.content() can capture a heavily mutated runtime
+        DOM that no longer matches the server response expected by hydration.
+        In those cases prefer the original HTML captured from the network.
+        """
+        original_html = self.network.get_document_html(self.base_url)
+        if not original_html or original_html == html_content:
+            return html_content
+
+        original_soup = BeautifulSoup(original_html, 'html.parser')
+        is_ssr_framework = any([
+            original_soup.find(id='__next') is not None,
+            original_soup.find(id='__nuxt') is not None,
+            original_soup.find(id='___gatsby') is not None,
+            'self.__next_f.push' in original_html,
+            '__NEXT_DATA__' in original_html,
+        ])
+
+        if not is_ssr_framework:
+            return html_content
+
+        if not self._body_has_meaningful_ssr_content(original_soup):
+            return html_content
+
+        self.log("   Usando HTML original da resposta como baseline do documento")
+        return original_html
 
     def _get_original_script_urls(self):
         """Return the external script URLs present in the original HTML response."""
@@ -131,14 +186,43 @@ class PostProcessor:
         initialized_attrs_removed = 0
         animation_play_state_removed = 0
         transform_style_resets = 0
+        playwright_attrs_removed = 0
 
         transient_style_props = {'translate', 'rotate', 'scale', 'transform-origin'}
+        transient_class_markers = {
+            'klaviyo',
+            'needsclick',
+            'kl-private-reset-css',
+            'cookiebot',
+            'cybotcookiebotdialog',
+            'web-pixels',
+            'web-pixel',
+            'shopify-privacy',
+        }
 
         for element in soup.find_all(True):
+            if not isinstance(getattr(element, 'attrs', None), dict):
+                continue
+
             for attr in list(element.attrs.keys()):
                 if attr.endswith('-initialized'):
                     del element[attr]
                     initialized_attrs_removed += 1
+                    continue
+                if attr.startswith('data-playwright'):
+                    del element[attr]
+                    playwright_attrs_removed += 1
+
+            classes = element.get('class', [])
+            if isinstance(classes, str):
+                classes = classes.split()
+            if classes:
+                filtered_classes = [
+                    cls for cls in classes
+                    if not any(marker in cls.lower() for marker in transient_class_markers)
+                ]
+                if filtered_classes != classes:
+                    element['class'] = filtered_classes
 
             style = element.get('style')
             if not style:
@@ -177,10 +261,341 @@ class PostProcessor:
 
         if initialized_attrs_removed:
             self.log(f"   Removidos {initialized_attrs_removed} flags de inicialização em runtime")
+        if playwright_attrs_removed:
+            self.log(f"   Removidos {playwright_attrs_removed} atributos temporários do Playwright")
         if animation_play_state_removed:
             self.log(f"   Limpos {animation_play_state_removed} estados transitórios de animation-play-state")
         if transform_style_resets:
             self.log(f"   Limpos {transform_style_resets} estilos transitórios de transform do runtime")
+
+    def _restore_empty_runtime_hosts(self, soup):
+        """
+        Reset server-empty runtime hosts back to their original empty state.
+
+        Scene mounts and canvas containers often start empty in the server HTML
+        and are populated only after client boot. Persisting those runtime
+        children offline can freeze scene re-initialization on the next load.
+        """
+        original_soup = self._get_original_html_soup()
+        if not original_soup:
+            return
+
+        path_lookup, signature_lookup = self._build_original_element_lookups(original_soup)
+
+        cleared = 0
+
+        for current_elem in list(soup.find_all(True)):
+            if current_elem.parent is None:
+                continue
+            if not isinstance(getattr(current_elem, 'attrs', None), dict):
+                continue
+
+            original_elem = self._match_original_element(current_elem, path_lookup, signature_lookup)
+            if not original_elem:
+                continue
+
+            original_children = [child for child in original_elem.children if getattr(child, 'name', None)]
+            if original_children:
+                continue
+
+            current_children = [child for child in current_elem.children if getattr(child, 'name', None)]
+            if not current_children:
+                continue
+
+            removable_children = []
+            for child in current_children:
+                if child.name == 'canvas':
+                    removable_children.append(child)
+                    continue
+                if child.has_attr('data-scene-id') or child.find('canvas'):
+                    removable_children.append(child)
+
+            if len(removable_children) != len(current_children):
+                continue
+
+            for child in list(current_children):
+                child.decompose()
+                cleared += 1
+
+        if cleared:
+            self.log(f"   Restaurados {cleared} hosts vazios do HTML original para reinicialização em runtime")
+
+    def _is_support_source_node(self, element):
+        """Heuristic for original HTML nodes that act as data sources for client boot."""
+        if element is None or not isinstance(getattr(element, 'attrs', None), dict):
+            return False
+
+        if element.name in {'script', 'style', 'link', 'meta', 'noscript'}:
+            return False
+
+        classes = set(self._normalized_classes(element))
+        if classes.intersection({'w-dyn-list', 'w-dyn-item'}):
+            return True
+
+        descendant_count = len(element.find_all(True))
+        text_length = len(' '.join(element.stripped_strings))
+        support_markers = {
+            'button',
+            'list',
+            'filter',
+            'menu',
+            'control',
+            'instruction',
+            'wrapper',
+            'source',
+            'template',
+        }
+        if classes and descendant_count <= 25 and text_length <= 160:
+            if any(any(marker in cls.lower() for marker in support_markers) for cls in classes):
+                return True
+
+        for attr in element.attrs:
+            if attr.startswith('data-'):
+                return True
+
+        if element.find(attrs=lambda attrs: attrs and any(key.startswith('data-') for key in attrs)):
+            return True
+
+        if element.find(class_='w-dyn-item') or element.find(class_='w-dyn-list'):
+            return True
+
+        return False
+
+    def _restore_missing_original_support_nodes(self, soup):
+        """
+        Restore original source nodes that page.content() may lose after client boot.
+
+        Some sites consume hidden CMS lists/templates during startup and remove them
+        from the live DOM. Persisting only the mutated runtime DOM makes the next
+        offline boot fail because the source nodes are no longer present.
+        """
+        original_soup = self._get_original_html_soup()
+        if not original_soup:
+            return
+
+        current_body = soup.find('body')
+        original_body = original_soup.find('body')
+        if not current_body or not original_body:
+            return
+
+        _, original_signature_lookup = self._build_original_element_lookups(original_soup)
+        current_path_lookup, current_signature_lookup = self._build_original_element_lookups(soup)
+        restored = 0
+
+        for original_elem in original_body.find_all(True):
+            signature = self._element_identity_signature(original_elem)
+            if not signature:
+                continue
+            if signature[0] == 'class' and len(original_signature_lookup.get(signature, [])) != 1:
+                continue
+            if self._match_original_element(original_elem, current_path_lookup, current_signature_lookup):
+                continue
+            if not self._is_support_source_node(original_elem):
+                continue
+
+            clone_soup = BeautifulSoup(str(original_elem), 'html.parser')
+            clone = clone_soup.find(True)
+            if clone is None:
+                continue
+
+            original_parent = original_elem.parent if getattr(original_elem.parent, 'name', None) else None
+            target_parent = current_body
+            if original_parent is not None:
+                matched_parent = self._match_original_element(
+                    original_parent,
+                    current_path_lookup,
+                    current_signature_lookup,
+                )
+                if matched_parent is not None:
+                    target_parent = matched_parent
+
+            target_parent.append(clone)
+            restored += 1
+
+        if restored:
+            self.log(f"   Restaurados {restored} nós-fonte do HTML original consumidos pelo runtime")
+
+    def _normalized_classes(self, element):
+        """Return a normalized list of CSS classes for element matching."""
+        if element is None or not isinstance(getattr(element, 'attrs', None), dict):
+            return []
+        classes = element.get('class', [])
+        if isinstance(classes, str):
+            classes = classes.split()
+        return [cls for cls in classes if cls]
+
+    def _elements_equivalent(self, current_elem, original_elem):
+        """Heuristic element matcher that tolerates extra runtime siblings."""
+        if current_elem.name != original_elem.name:
+            return False
+
+        current_id = current_elem.get('id')
+        original_id = original_elem.get('id')
+        if current_id or original_id:
+            return current_id == original_id
+
+        current_classes = tuple(self._normalized_classes(current_elem))
+        original_classes = tuple(self._normalized_classes(original_elem))
+        if current_classes or original_classes:
+            return current_classes == original_classes
+
+        for attr in ('role', 'aria-label', 'name', 'type'):
+            current_value = current_elem.get(attr)
+            original_value = original_elem.get(attr)
+            if current_value or original_value:
+                return current_value == original_value
+
+        return True
+
+    def _is_probable_runtime_only_node(self, element):
+        """Heuristic for nodes injected by client runtime after the server HTML."""
+        for attr in element.attrs:
+            if attr.startswith('data-playwright'):
+                return True
+            if attr in {
+                'data-scene-id',
+                'data-lenis-prevent',
+                'data-lenis-prevent-touch',
+                'data-lenis-prevent-wheel',
+            }:
+                return True
+
+        classes = set(self._normalized_classes(element))
+        if classes.intersection({'word', 'char', 'line'}):
+            return True
+
+        marker_values = []
+        for attr_name, attr_value in element.attrs.items():
+            if isinstance(attr_value, list):
+                marker_values.extend(str(item).lower() for item in attr_value)
+            else:
+                marker_values.append(str(attr_value).lower())
+
+        vendor_markers = {
+            'klaviyo',
+            'kl-private-reset-css',
+            'cookiebot',
+            'cybotcookiebotdialog',
+            'web-pixels',
+            'web-pixel',
+            'shopify-privacy',
+            'hotjar',
+            'intercom',
+            'drift',
+            'crisp',
+            'zendesk',
+            'tawk',
+            'livechat',
+            'freshchat',
+        }
+        if any(marker in value for value in marker_values for marker in vendor_markers):
+            return True
+
+        return False
+
+    def _prune_runtime_only_nodes(self, soup):
+        """
+        Remove DOM nodes added only after client boot.
+
+        page.content() captures the hydrated DOM, which may include overlays,
+        split-text wrappers, cookie banners and modal trees that were not part
+        of the server HTML. Keeping those nodes can freeze client runtimes on
+        the offline replay because the app hydrates against an already-mutated
+        structure instead of the original baseline.
+        """
+        original_soup = self._get_original_html_soup()
+        if not original_soup:
+            return
+
+        current_body = soup.find('body')
+        original_body = original_soup.find('body')
+        if not current_body or not original_body:
+            return
+
+        removed = self._prune_runtime_only_descendants(current_body, original_body)
+        if removed:
+            self.log(f"   Removidos {removed} nós gerados apenas em runtime")
+
+    def _should_prune_runtime_nodes(self, soup, max_elements=1800):
+        """
+        Skip recursive runtime-node pruning on very large SSR DOMs.
+
+        The recursive matcher is useful on moderate trees, but on heavily
+        hydrated documents it can dominate post-processing time. In those
+        cases we keep the cheaper SSR restorations (empty hosts, inline styles,
+        style tags) and let targeted tracking/widget removal handle overlays.
+        """
+        original_soup = self._get_original_html_soup()
+        if not original_soup:
+            return False
+
+        current_body = soup.find('body')
+        original_body = original_soup.find('body')
+        if not current_body or not original_body:
+            return False
+
+        current_count = len(current_body.find_all(True))
+        original_count = len(original_body.find_all(True))
+        if max(current_count, original_count) > max_elements:
+            self.log(
+                f"   Pulando poda recursiva de nós runtime-only em DOM grande "
+                f"({current_count}/{original_count} elementos)"
+            )
+            return False
+
+        return True
+
+    def _prune_runtime_only_descendants(self, current_parent, original_parent):
+        """Recursively remove extra runtime-only children while preserving originals."""
+        removed = 0
+
+        current_children = [child for child in current_parent.children if getattr(child, 'name', None)]
+        original_children = [child for child in original_parent.children if getattr(child, 'name', None)]
+
+        current_index = 0
+        original_index = 0
+
+        while current_index < len(current_children):
+            current_child = current_children[current_index]
+            original_child = original_children[original_index] if original_index < len(original_children) else None
+
+            if original_child and self._elements_equivalent(current_child, original_child):
+                removed += self._prune_runtime_only_descendants(current_child, original_child)
+                current_index += 1
+                original_index += 1
+                continue
+
+            if self._is_probable_runtime_only_node(current_child):
+                current_child.decompose()
+                removed += 1
+                current_children = [child for child in current_parent.children if getattr(child, 'name', None)]
+                continue
+
+            match_index = None
+            if original_child is not None:
+                for probe_index in range(current_index + 1, min(current_index + 5, len(current_children))):
+                    if self._elements_equivalent(current_children[probe_index], original_child):
+                        match_index = probe_index
+                        break
+
+            if match_index is not None:
+                extra_children = current_children[current_index:match_index]
+                for extra_child in extra_children:
+                    if extra_child.parent and self._is_probable_runtime_only_node(extra_child):
+                        extra_child.decompose()
+                        removed += 1
+                current_children = [child for child in current_parent.children if getattr(child, 'name', None)]
+                continue
+
+            if original_child is not None and current_child.name == original_child.name:
+                removed += self._prune_runtime_only_descendants(current_child, original_child)
+                current_index += 1
+                original_index += 1
+                continue
+
+            current_index += 1
+
+        return removed
 
     def _element_dom_path(self, element):
         """Build a stable nth-of-type DOM path for matching original/current nodes."""
@@ -203,6 +618,118 @@ class PostProcessor:
             current = parent if getattr(parent, 'name', None) else None
 
         return tuple(reversed(parts))
+
+    def _element_identity_signature(self, element):
+        """Return a stable identity signature for fallback original/current matching."""
+        if element is None or not isinstance(getattr(element, 'attrs', None), dict):
+            return None
+
+        element_id = element.get('id')
+        if element_id:
+            return ('id', element.name, element_id)
+
+        classes = tuple(self._normalized_classes(element))
+        if classes:
+            return ('class', element.name, classes)
+
+        name_attr = element.get('name')
+        if name_attr:
+            return ('name', element.name, name_attr)
+
+        return None
+
+    def _build_original_element_lookups(self, original_soup):
+        """Build path and signature lookups for the original HTML."""
+        path_lookup = {}
+        signature_lookup = {}
+
+        for original_elem in original_soup.find_all(True):
+            path_lookup[self._element_dom_path(original_elem)] = original_elem
+            signature = self._element_identity_signature(original_elem)
+            if signature:
+                signature_lookup.setdefault(signature, []).append(original_elem)
+
+        return path_lookup, signature_lookup
+
+    def _match_original_element(self, current_elem, path_lookup, signature_lookup):
+        """Match a current DOM node back to the original HTML."""
+        if current_elem is None or current_elem.parent is None:
+            return None
+        if not isinstance(getattr(current_elem, 'attrs', None), dict):
+            return None
+
+        original_elem = path_lookup.get(self._element_dom_path(current_elem))
+        if original_elem:
+            return original_elem
+
+        signature = self._element_identity_signature(current_elem)
+        if not signature:
+            return None
+
+        candidates = signature_lookup.get(signature, [])
+        if len(candidates) == 1:
+            return candidates[0]
+
+        return None
+
+    def _normalize_inline_style(self, style):
+        """Return a normalized representation of an inline style string."""
+        if not style:
+            return ()
+
+        declarations = []
+        for raw_decl in style.split(';'):
+            if ':' not in raw_decl:
+                continue
+            key, value = raw_decl.split(':', 1)
+            key = key.strip().lower()
+            value = ' '.join(value.strip().split())
+            if key:
+                declarations.append((key, value))
+
+        return tuple(declarations)
+
+    def _restore_original_inline_styles(self, soup):
+        """
+        Restore inline style attributes to the original server-rendered HTML.
+
+        Runtime animation libraries frequently persist transform/opacity/clip-path
+        states into the captured DOM. Replaying those mutated inline styles
+        offline can freeze entrances, scroll reveals and embedded widgets.
+        """
+        original_soup = self._get_original_html_soup()
+        if not original_soup:
+            return
+
+        path_lookup, signature_lookup = self._build_original_element_lookups(original_soup)
+
+        removed = 0
+        restored = 0
+
+        for current_elem in soup.find_all(True):
+            original_elem = self._match_original_element(current_elem, path_lookup, signature_lookup)
+            if not original_elem:
+                continue
+
+            current_style = current_elem.get('style')
+            original_style = original_elem.get('style')
+
+            if self._normalize_inline_style(current_style) == self._normalize_inline_style(original_style):
+                continue
+
+            if original_style is None:
+                if current_style is not None:
+                    del current_elem['style']
+                    removed += 1
+                continue
+
+            current_elem['style'] = original_style
+            restored += 1
+
+        if removed:
+            self.log(f"   Removidos {removed} estilos inline gerados apenas em runtime")
+        if restored:
+            self.log(f"   Restaurados {restored} estilos inline do HTML original")
 
     def _restore_original_svg_transforms(self, soup):
         """
@@ -264,14 +791,26 @@ class PostProcessor:
             return
 
         restored = 0
+        deduplicated = 0
         current_styles = head.find_all('style')
 
         def _style_signature(tag):
             return tuple(sorted((key, str(value)) for key, value in tag.attrs.items()))
 
+        def _css_in_js_key(tag):
+            if tag.has_attr('data-styled-version'):
+                return ('styled-components', str(tag.get('data-styled-version')))
+            if tag.has_attr('data-emotion'):
+                return ('emotion', str(tag.get('data-emotion')))
+            return None
+
         current_by_sig = {}
+        current_by_css_in_js = {}
         for style_tag in current_styles:
             current_by_sig.setdefault(_style_signature(style_tag), []).append(style_tag)
+            css_in_js_key = _css_in_js_key(style_tag)
+            if css_in_js_key:
+                current_by_css_in_js.setdefault(css_in_js_key, []).append(style_tag)
 
         for original_style in original_head.find_all('style'):
             original_css = original_style.get_text() or ''
@@ -293,6 +832,34 @@ class PostProcessor:
                 replaced = True
                 break
 
+            if not replaced:
+                css_in_js_key = _css_in_js_key(original_style)
+                if css_in_js_key:
+                    candidates = current_by_css_in_js.get(css_in_js_key, [])
+                    if any((candidate.get_text() or '').strip() for candidate in candidates):
+                        replaced = True
+                    else:
+                        placeholder = next(
+                            (
+                                candidate for candidate in candidates
+                                if not (candidate.get_text() or '').strip()
+                            ),
+                            None,
+                        )
+                        if placeholder:
+                            placeholder.attrs = dict(original_style.attrs)
+                            placeholder.clear()
+                            placeholder.append(NavigableString(original_css))
+                            restored += 1
+                            replaced = True
+
+                            for candidate in candidates:
+                                if candidate is placeholder:
+                                    continue
+                                if not (candidate.get_text() or '').strip():
+                                    candidate.decompose()
+                                    deduplicated += 1
+
             if replaced:
                 continue
 
@@ -305,6 +872,8 @@ class PostProcessor:
 
         if restored:
             self.log(f"   Restaurados {restored} blocos <style> críticos do HTML original")
+        if deduplicated:
+            self.log(f"   Removidos {deduplicated} placeholders duplicados de CSS-in-JS")
 
     def _fix_scroll_blocking(self, soup):
         """Remove scroll-blocking classes/attrs and inject minimal scroll-fix CSS."""
@@ -315,20 +884,17 @@ class PostProcessor:
             classes = html_elem.get('class', [])
             if isinstance(classes, str):
                 classes = classes.split()
-            lenis_cls = {'lenis', 'lenis-smooth', 'lenis-scrolling', 'lenis-stopped',
-                         'has-scroll-smooth', 'has-scroll-init', 'locomotive-scroll'}
-            new_cls = [c for c in classes if c.lower() not in lenis_cls]
+            blocking = {'overflow-hidden', 'no-scroll', 'scroll-lock', 'fixed', 'modal-open'}
+            new_cls = [c for c in classes if c.lower() not in blocking]
             if new_cls != classes:
                 html_elem['class'] = new_cls
-                self.log("   Removidas classes Lenis/Locomotive do html")
 
         body = soup.find('body')
         if body:
             classes = body.get('class', [])
             if isinstance(classes, str):
                 classes = classes.split()
-            blocking = {'overflow-hidden', 'no-scroll', 'scroll-lock', 'fixed',
-                        'lenis', 'lenis-smooth', 'has-scroll-smooth'}
+            blocking = {'overflow-hidden', 'no-scroll', 'scroll-lock', 'fixed', 'modal-open'}
             new_cls = [c for c in classes if c.lower() not in blocking]
             if 'items-center' in new_cls and 'flex' in new_cls:
                 new_cls = ['items-start' if c == 'items-center' else c for c in new_cls]
@@ -371,6 +937,44 @@ class PostProcessor:
             if srcdoc or 'preview' in str(iframe.get('class', '')).lower():
                 iframe.decompose()
 
+    def _prefer_original_root_path(self, original_url, local_path):
+        """
+        Keep exact same-origin root paths when the saved asset preserved structure.
+
+        This preserves framework runtime semantics such as Next.js assetPrefix
+        detection from `document.currentScript.src`, while the local server can
+        still resolve `/path` to `assets/path` transparently.
+        """
+        if not original_url or not local_path or not local_path.startswith('assets/'):
+            return local_path
+
+        absolute_url = urljoin(self.base_url, original_url)
+        parsed_original = urlparse(absolute_url)
+        parsed_base = urlparse(self.base_url)
+
+        if parsed_original.scheme not in {'http', 'https'}:
+            return local_path
+        if parsed_original.netloc != parsed_base.netloc:
+            return local_path
+        if parsed_original.query or not parsed_original.path.startswith('/'):
+            return local_path
+
+        expected_local = f"assets/{parsed_original.path.lstrip('/')}"
+        if local_path == expected_local:
+            return parsed_original.path
+
+        return local_path
+
+    def _to_browser_url(self, local_path):
+        """Normalize saved paths into URL-like specifiers safe for HTML/runtime APIs."""
+        if not local_path:
+            return local_path
+
+        if local_path.startswith(('http://', 'https://', '/', './', '../', 'data:', 'blob:')):
+            return local_path
+
+        return f"/{local_path.lstrip('/')}"
+
     def _process_stylesheets(self, soup):
         """Localize external stylesheets and rewrite their url() references."""
         self.log("Processando stylesheets...")
@@ -404,7 +1008,7 @@ class PostProcessor:
                 css_content = rewrite_css_urls(css_content, abs_url, self.network)
                 local_path = self.network._save_resource(abs_url, css_content.encode('utf-8'), 'text/css')
                 if local_path:
-                    link['href'] = local_path
+                    link['href'] = self._prefer_original_root_path(href, local_path)
 
     def _process_inline_styles(self, soup):
         """Rewrite url() in inline <style> tags."""
@@ -447,7 +1051,7 @@ class PostProcessor:
             # Check if download failed (resource returned unchanged or not localized)
             if local_path and local_path != src:
                 # Success - update src to local path
-                script['src'] = local_path
+                script['src'] = self._prefer_original_root_path(src, local_path)
                 for attr in ['integrity', 'crossorigin', 'nonce']:
                     if script.has_attr(attr):
                         del script[attr]
@@ -649,6 +1253,15 @@ class PostProcessor:
                 return True
         return False
 
+    def _is_ssr_framework(self, soup):
+        """Detect SSR/SPA frameworks whose runtime mutates the DOM heavily."""
+        return any([
+            soup.find(id='___gatsby') is not None,
+            soup.find(id='__nuxt') is not None,
+            soup.find(id='__next') is not None,
+            self._detect_nextjs(soup),
+        ])
+
     def _handle_spa_frameworks(self, soup):
         """Preserve framework hydration/runtime scripts for offline execution."""
         is_gatsby = soup.find(id='___gatsby') is not None
@@ -679,7 +1292,7 @@ class PostProcessor:
             if href and not href.startswith(('data:', 'blob:', 'assets/')):
                 local_path = self.network.get_resource(href)
                 if local_path and local_path != href:
-                    link['href'] = local_path
+                    link['href'] = self._prefer_original_root_path(href, local_path)
                     processed += 1
         if processed:
             self.log(f"   {processed} preloads reescritos")
@@ -688,13 +1301,258 @@ class PostProcessor:
         """Remove analytics/tracking script tags."""
         self.log("🛡️ Removendo scripts de tracking...")
         removed = 0
-        for script in soup.find_all('script', src=True):
-            src = script.get('src', '')
-            if any(pattern in src.lower() for pattern in TRACKING_SCRIPTS):
+        for script in soup.find_all('script'):
+            src = (script.get('src', '') or '').lower()
+            text = (script.get_text() or '').lower()
+            attr_values = []
+            if isinstance(getattr(script, 'attrs', None), dict):
+                for attr_value in script.attrs.values():
+                    if isinstance(attr_value, list):
+                        attr_values.extend(str(item).lower() for item in attr_value)
+                    else:
+                        attr_values.append(str(attr_value).lower())
+            haystack = f"{src}\n{text}\n" + '\n'.join(attr_values)
+            if any(pattern in haystack for pattern in TRACKING_SCRIPTS):
                 script.decompose()
                 removed += 1
         if removed:
             self.log(f"   Removidos {removed} scripts de tracking")
+
+    def _remove_tracking_widgets(self, soup):
+        """Remove runtime DOM widgets from tracking/marketing vendors."""
+        removed = 0
+        widget_markers = {
+            'klaviyo',
+            'kl-private-reset-css',
+            'cookiebot',
+            'cybotcookiebotdialog',
+            'web-pixels',
+            'web-pixel',
+            'shopify-privacy',
+            'hotjar',
+            'intercom',
+            'drift',
+            'crisp',
+            'zendesk',
+            'tawk',
+            'livechat',
+            'freshchat',
+        }
+
+        for element in list(soup.find_all(True)):
+            if element.name in {'html', 'head', 'body', 'meta'}:
+                continue
+            if element.parent is None:
+                continue
+            if not isinstance(getattr(element, 'attrs', None), dict):
+                continue
+
+            marker_values = []
+            for attr_name, attr_value in element.attrs.items():
+                if isinstance(attr_value, list):
+                    marker_values.extend(str(item).lower() for item in attr_value)
+                else:
+                    marker_values.append(str(attr_value).lower())
+
+            if element.name in {'style', 'noscript'}:
+                marker_values.append((element.get_text() or '').lower())
+
+            if not marker_values:
+                continue
+
+            if any(marker in value for value in marker_values for marker in widget_markers):
+                element.decompose()
+                removed += 1
+
+        if removed:
+            self.log(f"   Removidos {removed} widgets de tracking/marketing")
+
+    def _inject_external_preload_bootstrap(self, soup):
+        """
+        Materialize external SDK preloads into executable script tags offline.
+
+        Some frameworks preload third-party SDKs but insert the <script> tag later at
+        runtime. Offline, that second step may never happen again, so expose the
+        local captured asset as a real <script src=...> tag during initial parse.
+        """
+        resource_map = self.network.get_resource_map()
+        if not resource_map:
+            return
+
+        site_host = urlparse(self.base_url).netloc.lower()
+        original_script_urls = set(self._get_original_script_urls())
+        reverse_map = {}
+        for remote_url, local_path in resource_map.items():
+            reverse_map.setdefault(local_path, []).append(remote_url)
+
+        candidates = []
+        seen = set()
+
+        for link in soup.find_all('link', rel=lambda r: r and any(x in r for x in ['preload', 'modulepreload'])):
+            href = link.get('href')
+            if not href:
+                continue
+
+            as_value = (link.get('as') or '').strip().lower()
+            rel_values = link.get('rel') or []
+            is_module = any(value == 'modulepreload' for value in rel_values)
+            if as_value != 'script' and not is_module:
+                continue
+
+            remote_matches = reverse_map.get(href, [])
+            remote_url = next(
+                (
+                    remote for remote in remote_matches
+                    if urlparse(remote).scheme in {'http', 'https'}
+                    and urlparse(remote).netloc.lower() != site_host
+                    and remote not in original_script_urls
+                ),
+                None,
+            )
+            if not remote_url:
+                continue
+
+            key = (href, is_module)
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append({
+                'local': href,
+                'remote': remote_url,
+                'module': is_module,
+            })
+
+        if not candidates:
+            return
+
+        head = soup.find('head')
+        if not head:
+            return
+
+        injected = 0
+        existing_script_srcs = {
+            script.get('src')
+            for script in soup.find_all('script', src=True)
+            if script.get('src')
+        }
+        inline_script_blob = '\n'.join(
+            script.get_text() or ''
+            for script in soup.find_all('script')
+            if not script.get('src') and not script.has_attr('data-fetch-interceptor')
+        )
+
+        for candidate in candidates:
+            local_src = self._prefer_original_root_path(candidate['remote'], candidate['local'])
+            local_src = self._to_browser_url(local_src)
+            if local_src in existing_script_srcs:
+                continue
+            if candidate['remote'] in inline_script_blob or local_src in inline_script_blob:
+                continue
+
+            script_tag = soup.new_tag('script')
+            script_tag['src'] = local_src
+            script_tag['data-external-preload-bootstrap'] = 'true'
+            if candidate['module']:
+                script_tag['type'] = 'module'
+
+            first_script = head.find('script')
+            if first_script:
+                first_script.insert_before(script_tag)
+            else:
+                head.append(script_tag)
+            existing_script_srcs.add(local_src)
+            injected += 1
+
+        if injected:
+            self.log(f"   Materializados {injected} script(s) externos a partir de preload")
+
+    def _is_shopify_document(self, soup):
+        """Detect Shopify storefront documents that expect a global Shopify bootstrap."""
+        if soup.find('meta', attrs={'name': 'shopify-checkout-api-token'}):
+            return True
+        if soup.find('meta', attrs={'id': 'shopify-digital-wallet'}):
+            return True
+
+        html_blob = str(soup)[:250000]
+        return 'Shopify.designMode' in html_blob or '/cdn/shop/t/' in html_blob
+
+    def _inject_shopify_bootstrap(self, soup):
+        """Provide a minimal Shopify global before inline theme scripts execute offline."""
+        if not self._is_shopify_document(soup):
+            return
+
+        head = soup.find('head')
+        if not head:
+            return
+
+        existing_bootstrap = head.find(
+            'script',
+            attrs={'data-generated-shopify-bootstrap': 'true'},
+        )
+        if existing_bootstrap:
+            return
+
+        script_tag = soup.new_tag('script')
+        script_tag['data-generated-shopify-bootstrap'] = 'true'
+        script_tag.string = (
+            "window.Shopify = window.Shopify || {};"
+            "if (typeof window.Shopify.designMode === 'undefined') {"
+            "window.Shopify.designMode = false;"
+            "}"
+        )
+
+        first_script = head.find('script')
+        if first_script:
+            first_script.insert_before(script_tag)
+        else:
+            head.insert(0, script_tag)
+
+    def _build_import_map(self):
+        """Map absolute JS module specifiers to local offline assets."""
+        resource_map = self.network.get_resource_map()
+        if not resource_map:
+            return {}
+
+        imports = {}
+        for remote_url, local_path in resource_map.items():
+            if not local_path.endswith(('.js', '.mjs')):
+                continue
+
+            parsed = urlparse(remote_url)
+            if parsed.scheme not in {'http', 'https'}:
+                continue
+
+            local_specifier = self._prefer_original_root_path(remote_url, local_path)
+            local_specifier = self._to_browser_url(local_specifier)
+            imports[remote_url] = local_specifier
+
+            if parsed.scheme == 'https':
+                imports[f"http://{parsed.netloc}{parsed.path}"] = local_specifier
+            elif parsed.scheme == 'http':
+                imports[f"https://{parsed.netloc}{parsed.path}"] = local_specifier
+
+        return imports
+
+    def _inject_import_map(self, soup):
+        """Inject an import map for absolute dynamic imports before scripts execute."""
+        imports = self._build_import_map()
+        if not imports:
+            return
+
+        head = soup.find('head')
+        if not head:
+            return
+
+        script_tag = soup.new_tag('script')
+        script_tag['type'] = 'importmap'
+        script_tag['data-generated-importmap'] = 'true'
+        script_tag.string = json.dumps({'imports': imports}, ensure_ascii=False)
+
+        first_script = head.find('script')
+        if first_script:
+            first_script.insert_before(script_tag)
+        else:
+            head.insert(0, script_tag)
 
     def _inject_fetch_interceptor(self, soup):
         """Read the JS template, inject resource map, and prepend to <head>."""
@@ -731,7 +1589,10 @@ class PostProcessor:
             script_tag = soup.new_tag('script')
             script_tag['data-fetch-interceptor'] = 'true'
             script_tag.append(NavigableString(interceptor_script))
-            if head.contents:
+            import_maps = head.find_all('script', attrs={'type': 'importmap'})
+            if import_maps:
+                import_maps[-1].insert_after(script_tag)
+            elif head.contents:
                 head.insert(0, script_tag)
             else:
                 head.append(script_tag)

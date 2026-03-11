@@ -221,15 +221,9 @@ class BrowserController:
             # CRITICAL: Force eager loading BEFORE scrolling
             self.force_eager_loading()
 
-            # Disable smooth scroll libraries
+            # Keep smooth scroll runtimes intact; only neutralize hard scroll locks.
             self.page.evaluate("""
                 () => {
-                    if (window.lenis) {
-                        try { window.lenis.destroy(); } catch(e) {}
-                    }
-                    if (window.locomotiveScroll) {
-                        try { window.locomotiveScroll.destroy(); } catch(e) {}
-                    }
                     document.documentElement.style.scrollBehavior = 'auto';
                     document.body.style.scrollBehavior = 'auto';
 
@@ -274,40 +268,51 @@ class BrowserController:
             iteration = 0
             current = 0
             while current < total_height and iteration < MAX_SCROLL_ITERATIONS:
-                self.page.evaluate(f"""
-                    (pos) => {{
-                        window.scrollTo(0, pos);
-                        document.documentElement.scrollTop = pos;
-                        document.body.scrollTop = pos;
-
-                        const containers = document.querySelectorAll('[data-scroll-container], .scroll-container, main');
-                        containers.forEach(c => {{ c.scrollTop = pos; }});
-
-                        // CRITICAL: Trigger resize event to wake up GSAP ScrollTrigger
-                        // This forces ScrollTrigger to recalculate positions with loaded images
-                        window.dispatchEvent(new Event('resize'));
-                    }}
-                """, current)
+                self.page.evaluate("""
+                    ({ selector, pos, step }) => {
+                        requestAnimationFrame(() => {
+                            const target = selector ? document.querySelector(selector) : null;
+                            if (target) {
+                                target.scrollTop = pos;
+                            } else {
+                                window.scrollTo(0, pos);
+                                document.documentElement.scrollTop = pos;
+                                document.body.scrollTop = pos;
+                            }
+                        });
+                        return step;
+                    }
+                """, {"selector": scroll_container, "pos": current, "step": viewport_height})
 
                 self.page.wait_for_timeout(600)
                 current += viewport_height
                 iteration += 1
 
-                new_height = self.page.evaluate("Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)")
-                if new_height > total_height:
-                    total_height = new_height
+                if not scroll_container:
+                    new_height = self.page.evaluate("Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)")
+                    if new_height > total_height:
+                        total_height = new_height
 
             # Scroll back to top
             self.page.evaluate("""
                 () => {
-                    window.scrollTo(0, 0);
-                    document.documentElement.scrollTop = 0;
-                    document.body.scrollTop = 0;
-
-                    // CRITICAL: Final resize event to ensure GSAP recalculates everything
-                    // After all images are loaded and page is at top position
+                    requestAnimationFrame(() => {
+                        window.scrollTo(0, 0);
+                        document.documentElement.scrollTop = 0;
+                        document.body.scrollTop = 0;
+                    });
                     setTimeout(() => {
+                        document.dispatchEvent(new Event('scroll'));
                         window.dispatchEvent(new Event('resize'));
+                        if (window.ScrollTrigger && typeof window.ScrollTrigger.refresh === 'function') {
+                            try { window.ScrollTrigger.refresh(); } catch(e) {}
+                        }
+                        if (window.locomotiveScroll && typeof window.locomotiveScroll.update === 'function') {
+                            try { window.locomotiveScroll.update(); } catch(e) {}
+                        }
+                        if (window.lenis && typeof window.lenis.resize === 'function') {
+                            try { window.lenis.resize(); } catch(e) {}
+                        }
                     }, 100);
                 }
             """)
@@ -733,6 +738,31 @@ class BrowserController:
 
     def get_content(self):
         """Get page HTML content"""
+        try:
+            self.page.evaluate("""
+                () => {
+                    for (const sheet of Array.from(document.styleSheets)) {
+                        const ownerNode = sheet.ownerNode;
+                        if (!ownerNode || ownerNode.tagName !== 'STYLE') continue;
+
+                        let cssText = '';
+                        try {
+                            cssText = Array.from(sheet.cssRules || []).map(rule => rule.cssText).join('\\n');
+                        } catch (e) {
+                            continue;
+                        }
+
+                        if (!cssText || cssText.length < 50) continue;
+
+                        if (!ownerNode.textContent || ownerNode.textContent.length < cssText.length) {
+                            ownerNode.textContent = cssText;
+                        }
+                    }
+                }
+            """)
+        except Exception as e:
+            self.log(f"Erro ao serializar CSSOM antes de capturar HTML: {e}")
+
         return self.page.content()
 
     def close(self):

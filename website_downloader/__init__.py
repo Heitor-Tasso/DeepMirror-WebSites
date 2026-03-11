@@ -69,6 +69,12 @@ TRACKING_SCRIPTS = [
     'tawk',
     'livechat',
     'freshchat',
+    'klaviyo',
+    'cookiebot',
+    'consentcdn',
+    'monorail',
+    'web-pixels',
+    'webpixels',
 ]
 
 # Smooth scroll libraries a remover

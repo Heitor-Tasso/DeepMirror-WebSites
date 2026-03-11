@@ -1,223 +1,5 @@
 
-> osmo.supply
-
-- Console Python:
-```
-127.0.0.1 - - [10/Mar/2026 16:47:08] code 404, message File not found
-127.0.0.1 - - [10/Mar/2026 16:47:08] "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 -
-127.0.0.1 - - [10/Mar/2026 16:47:09] code 404, message File not found
-127.0.0.1 - - [10/Mar/2026 16:47:09] "GET /assets/npm/hls.min.js.map HTTP/1.1" 404 -
-127.0.0.1 - - [10/Mar/2026 16:49:03] code 404, message File not found
-127.0.0.1 - - [10/Mar/2026 16:49:03] "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 -
-127.0.0.1 - - [10/Mar/2026 16:49:03] code 404, message File not found
-127.0.0.1 - - [10/Mar/2026 16:49:03] "GET /assets/npm/hls.min.js.map HTTP/1.1" 404 -
-```
-
-- Console Web:
-```
-(índice):232 [Fetch Interceptor] Installed with 166 mappings
-(índice):233 [Fetch Interceptor] Basename index: 155 files
-(índice):1 Unchecked runtime.lastError: The message port closed before a response was received.
-(índice):143 [Fetch Interceptor] ✓ https://config.outseta.com/nocode/osmo.outseta.com.json -> assets/osmo_06366fcb241c.json
-(índice):143 [Fetch Interceptor] ✓ https://vz-6ed806ff-5e5.b-cdn.net/b6a663de-07c1-4c37-8bb6-0e79fef7fb3c/playlist.m3u8 -> assets/b6a663de-07c1-4c37-8bb6-0e79fef7fb3c/playlist.m3u8
-(índice):143 [Fetch Interceptor] ✓ https://vz-6ed806ff-5e5.b-cdn.net/b6a663de-07c1-4c37-8bb6-0e79fef7fb3c/720p/video.m3u8 -> assets/b6a663de-07c1-4c37-8bb6-0e79fef7fb3c/720p/video.m3u8
-script.outbound-links.pageview-props.revenue.tagged-events.js:1 Ignoring Event: localhost
-g @ script.outbound-links.pageview-props.revenue.tagged-events.js:1
-(índice):1 Uncaught (in promise) AbortError: The play() request was interrupted by a call to pause(). https://goo.gl/LdLk22
-(índice):1 Uncaught (in promise) AbortError: The play() request was interrupted by a call to pause(). https://goo.gl/LdLk22
-```
-
-> beda.imb.br
-
-- Console Python:
-```
-127.0.0.1 - - [10/Mar/2026 16:51:09] code 404, message File not found
-127.0.0.1 - - [10/Mar/2026 16:51:09] "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 -
-```
-
-- Console Web:
-```
-(índice):232 [Fetch Interceptor] Installed with 121 mappings
-(índice):233 [Fetch Interceptor] Basename index: 121 files
-(índice):291 Unchecked runtime.lastError: The message port closed before a response was received.
-(índice):143 [Fetch Interceptor] ✓ https://pogoipfqmoqztlaawqfv.supabase.co/rest/v1/properties?select=city&published=eq.true&availability=eq.disponivel&city=not.is.null -> assets/properties_7eebb518e017.json
-(índice):143 [Fetch Interceptor] ✓ https://pogoipfqmoqztlaawqfv.supabase.co/rest/v1/properties?select=district%2Ccity&published=eq.true&availability=eq.disponivel&district=not.is.null -> assets/properties_ab2328929d3a.json
-(índice):143 [Fetch Interceptor] ✓ https://pogoipfqmoqztlaawqfv.supabase.co/rest/v1/properties?select=city&published=eq.true&operation=in.%28aluguel%2Cambos%29 -> assets/properties_ca6253cf2d2a.json
-(índice):143 [Fetch Interceptor] ✓ https://pogoipfqmoqztlaawqfv.supabase.co/rest/v1/properties?select=*%2Cproperty_media%21property_media_property_id_fkey%28url%2Ctype%2Cis_cover%29&featured=eq.true&published=eq.true&order=created_at.desc&limit=6 -> assets/properties_0934d6de39b0.json
-(índice):150 [Fetch Interceptor] ✗ Blocked external leak: https://pogoipfqmoqztlaawqfv.supabase.co/rest/v1/cms_pages?select=*&page_slug=eq.home
-window.fetch @ (índice):150
-index-BV-gJ14r.js:281 Microsoft Clarity inicializado com consentimento de analytics
-(índice):199 [XHR Interceptor] ✗ Blocked external leak: https://k.clarity.ms/collect
-XMLHttpRequest.send @ (índice):199
-hi @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-o @ clarity.js:2
-Promise.then
-c @ clarity.js:2
-(anônimo) @ clarity.js:2
-it @ clarity.js:2
-fi @ clarity.js:2
-(anônimo) @ clarity.js:2
-setTimeout
-V @ clarity.js:2
-li @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-it @ clarity.js:2
-Jn @ clarity.js:2
-ta @ clarity.js:2
-start @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-Ru @ clarity.js:2
-Lu.Au.<computed> @ clarity.js:2
-Lu @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(índice):199 [XHR Interceptor] ✗ Blocked external leak: https://k.clarity.ms/collect
-XMLHttpRequest.send @ (índice):199
-hi @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-o @ clarity.js:2
-Promise.then
-c @ clarity.js:2
-(anônimo) @ clarity.js:2
-it @ clarity.js:2
-fi @ clarity.js:2
-(anônimo) @ clarity.js:2
-setTimeout
-V @ clarity.js:2
-li @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-it @ clarity.js:2
-Yr @ clarity.js:2
-Ci @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-it @ clarity.js:2
-Ii @ clarity.js:2
-Ve @ clarity.js:2
-(anônimo) @ clarity.js:2
-setTimeout
-V @ clarity.js:2
-qe @ clarity.js:2
-start @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-Ru @ clarity.js:2
-Lu.Au.<computed> @ clarity.js:2
-Lu @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(índice):199 [XHR Interceptor] ✗ Blocked external leak: https://k.clarity.ms/collect
-XMLHttpRequest.send @ (índice):199
-hi @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-o @ clarity.js:2
-Promise.then
-c @ clarity.js:2
-(anônimo) @ clarity.js:2
-it @ clarity.js:2
-fi @ clarity.js:2
-(anônimo) @ clarity.js:2
-setTimeout
-V @ clarity.js:2
-li @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-it @ clarity.js:2
-Yr @ clarity.js:2
-Ci @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-it @ clarity.js:2
-Ii @ clarity.js:2
-Ve @ clarity.js:2
-(anônimo) @ clarity.js:2
-setTimeout
-V @ clarity.js:2
-qe @ clarity.js:2
-(anônimo) @ clarity.js:2
-setTimeout
-i @ clarity.js:2
-(anônimo) @ clarity.js:2
-(índice):199 [XHR Interceptor] ✗ Blocked external leak: https://k.clarity.ms/collect
-XMLHttpRequest.send @ (índice):199
-hi @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-o @ clarity.js:2
-Promise.then
-c @ clarity.js:2
-(anônimo) @ clarity.js:2
-it @ clarity.js:2
-fi @ clarity.js:2
-(anônimo) @ clarity.js:2
-setTimeout
-V @ clarity.js:2
-li @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-it @ clarity.js:2
-Yr @ clarity.js:2
-Ci @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-(anônimo) @ clarity.js:2
-it @ clarity.js:2
-Ii @ clarity.js:2
-Ie @ clarity.js:2
-(anônimo) @ clarity.js:2
-setTimeout
-V @ clarity.js:2
-xe @ clarity.js:2
-Me @ clarity.js:2
-(anônimo) @ clarity.js:2
-```
-
-Algo me diz que esse site tem alguma coisa em algum javscript para não deixar baixar ele:
-```
-case 6:
-        var r = Be
-          , o = Gt;
-        Be = null,
-        Hn(e, t, n),
-        Be = r,
-        Gt = o,
-        Be !== null && (Gt ? (e = Be,
-        n = n.stateNode,
-        e.nodeType === 8 ? e.parentNode.removeChild(n) : e.removeChild(n)) : Be.removeChild(n.stateNode));
-        break;
-    case 18:
-        Be !== null && (Gt ? (e = Be,
-        n = n.stateNode,
-        e.nodeType === 8 ? uu(e.parentNode, n) : e.nodeType === 1 && uu(e, n),
-        ki(e)) : uu(Be, n.stateNode));
-        break;
-```
-
-> pocketchangethe.world
+> palmer.dinnerware
 
 - Console Python:
 ```
@@ -226,7 +8,280 @@ Nenhum
 
 - Console Web:
 ```
-127.0.0.1 - - [10/Mar/2026 07:46:23] code 404, message File not found
+(index):377 [Fetch Interceptor] Installed with 286 mappings
+(index):378 [Fetch Interceptor] Basename index: 286 files
+(index):1 Unchecked runtime.lastError: The message port closed before a response was received.
+gsap.min.js:10 GSAP target  not found. https://gsap.com
+T @ gsap.min.js:10
+gsap.min.js:10 GSAP target  not found. https://gsap.com
+T @ gsap.min.js:10
+about:blank:1 Unchecked runtime.lastError: The message port closed before a response was received.
+index.mjs:327 Uncaught TypeError: Cannot read properties of null (reading 'querySelectorAll')
+    at Home.initFilters (index.mjs:327:42)
+    at new Home (index.mjs:45:10)
+    at index.mjs:4988:1
+gsap.min.js:10 GSAP target  not found. https://gsap.com
+T @ gsap.min.js:10
+gsap.min.js:10 GSAP target  not found. https://gsap.com
+T @ gsap.min.js:10
+gsap.min.js:10 GSAP target  not found. https://gsap.com
+T @ gsap.min.js:10
+gsap.min.js:10 GSAP target  not found. https://gsap.com
+T @ gsap.min.js:10
 ```
 
-- Ele não conseguiu baixar nenhum css dentro de `assets/_next/static/chunks`, só baixou esse: `8c0b9ff30e465829.css` mas está faltando vários.
+Esse site parece funcionar bem, mas por algum motivo os elementos 3d que eram para aprecer estão invisíveis mesmo que passando por cima aparece uma label incicando que eles estão lá. O fundo está 100% branco sendo que era para ter elementos na página. E estão faltando as animações.
+
+> landonorris.store
+
+- Console Python:
+```
+----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 47992)
+Traceback (most recent call last):
+  File "/usr/lib/python3.12/socketserver.py", line 318, in _handle_request_noblock
+    self.process_request(request, client_address)
+  File "/usr/lib/python3.12/socketserver.py", line 349, in process_request
+    self.finish_request(request, client_address)
+  File "/usr/lib/python3.12/socketserver.py", line 362, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/usr/lib/python3.12/http/server.py", line 672, in __init__
+    super().__init__(*args, **kwargs)
+  File "/usr/lib/python3.12/socketserver.py", line 761, in __init__
+    self.handle()
+  File "/usr/lib/python3.12/http/server.py", line 436, in handle
+    self.handle_one_request()
+  File "/usr/lib/python3.12/http/server.py", line 424, in handle_one_request
+    method()
+  File "/home/htasso/Downloads/sotahtech/DeepMirror-WebSites/downloads/landonorris.store/raw/serve.py", line 93, in do_GET
+    super().do_GET()
+  File "/usr/lib/python3.12/http/server.py", line 679, in do_GET
+    self.copyfile(f, self.wfile)
+  File "/usr/lib/python3.12/http/server.py", line 878, in copyfile
+    shutil.copyfileobj(source, outputfile)
+  File "/usr/lib/python3.12/shutil.py", line 204, in copyfileobj
+    fdst_write(buf)
+  File "/usr/lib/python3.12/socketserver.py", line 840, in write
+    self._sock.sendall(b)
+ConnectionResetError: [Errno 104] Connection reset by peer
+----------------------------------------
+127.0.0.1 - - [11/Mar/2026 08:33:23] code 404, message File not found
+127.0.0.1 - - [11/Mar/2026 08:33:23] "GET /cdn/shop/t/119/assets/component-predictive-search.css.map?v=165644661289088488651758883165 HTTP/1.1" 404 -
+127.0.0.1 - - [11/Mar/2026 08:33:23] code 404, message File not found
+127.0.0.1 - - [11/Mar/2026 08:33:23] "GET /cdn/shop/t/119/assets/base.css.map?v=49735997935341061081758883161 HTTP/1.1" 404 -
+```
+
+- Console Web:
+```
+(index):1 Unchecked runtime.lastError: The message port closed before a response was received.
+(index):402 [Fetch Interceptor] Installed with 744 mappings
+(index):403 [Fetch Interceptor] Basename index: 740 files
+[Intervention] Slow network is detected. See <URL> for more details. Fallback font will be used while loading: <URL>
+(index):326 [Fetch Interceptor] ✓ https://shop.app/pay/session?v=1 -> assets/session_69e69925bcdb.json
+(index):331 [Fetch Interceptor] ✗ Blocked tracking call: https://landonorris.store/api/collect
+window.fetch @ (index):331
+(index):331 [Fetch Interceptor] ✗ Blocked tracking call: https://monorail-edge.shopifysvc.com/v1/produce
+window.fetch @ (index):331
+about:blank:1 Unchecked runtime.lastError: The message port closed before a response was received.
+(index):266 [DOM Interceptor] ✓ script //landonorris.store/cdn/shop/t/119/assets/node_modules_body-scroll-lock_lib_bodyScrollLock_esm_js.min.js -> assets/cdn/shop/t/119/assets/node_modules_body-scroll-lock_lib_bodyScrollLock_esm_js.min.js
+radiant_58cce9565a3c.js:3 Unknown config option(s) passed usingSettingsFor
+e._validateConfig @ radiant_58cce9565a3c.js:3
+radiant_58cce9565a3c.js:3 Trying to initialise Choices on element already initialised Object
+e @ radiant_58cce9565a3c.js:3
+(index):266 [DOM Interceptor] ✓ script //landonorris.store/cdn/shop/t/119/assets/vendors-node_modules_scrollreveal_dist_scrollreveal_es_js.min.js -> assets/cdn/shop/t/119/assets/vendors-node_modules_scrollreveal_dist_scrollreveal_es_js.min.js
+radiant_58cce9565a3c.js:1 CART ITEMS
+radiant_58cce9565a3c.js:1 Object
+Framing 'https://shop.app/' violates the following Content Security Policy directive: "frame-ancestors https://lando-norris-shop.myshopify.com https://shop.landonorris.com https://basketball.landonorris.com https://lando-norris-shop.account.myshopify.com https://store.landonorris.com https://landonorris.store https://www.landonorris.store https://lando.store https://www.lando.store https://shopify.com". The request has been blocked.
+
+(index):331 [Fetch Interceptor] ✗ Blocked tracking call: https://landonorris.store/api/collect
+window.fetch @ (index):331
+sendBeacon @ shopify-perf-kit-3.3.0.min.js:1
+checkAndSendSignals @ shopify-perf-kit-3.3.0.min.js:1
+processAndSendSignals @ shopify-perf-kit-3.3.0.min.js:1
+<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.timeout @ shopify-perf-kit-3.3.0.min.js:1
+requestIdleCallback
+i @ shopify-perf-kit-3.3.0.min.js:1
+(index):331 [Fetch Interceptor] ✗ Blocked tracking call: https://landonorris.store/api/collect
+window.fetch @ (index):331
+sendBeacon @ shopify-perf-kit-3.3.0.min.js:1
+checkAndSendSignals @ shopify-perf-kit-3.3.0.min.js:1
+processAndSendSignals @ shopify-perf-kit-3.3.0.min.js:1
+<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.timeout @ shopify-perf-kit-3.3.0.min.js:1
+requestIdleCallback
+i @ shopify-perf-kit-3.3.0.min.js:1
+setTimeout
+t @ shopify-perf-kit-3.3.0.min.js:1
+(anonymous) @ shopify-perf-kit-3.3.0.min.js:1
+Promise.then
+<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.timeout @ shopify-perf-kit-3.3.0.min.js:1
+requestIdleCallback
+i @ shopify-perf-kit-3.3.0.min.js:1
+setTimeout
+t @ shopify-perf-kit-3.3.0.min.js:1
+(anonymous) @ shopify-perf-kit-3.3.0.min.js:1
+Promise.then
+<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.timeout @ shopify-perf-kit-3.3.0.min.js:1
+requestIdleCallback
+i @ shopify-perf-kit-3.3.0.min.js:1
+setTimeout
+t @ shopify-perf-kit-3.3.0.min.js:1
+(anonymous) @ shopify-perf-kit-3.3.0.min.js:1
+Promise.then
+<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.timeout @ shopify-perf-kit-3.3.0.min.js:1
+requestIdleCallback
+i @ shopify-perf-kit-3.3.0.min.js:1
+setTimeout
+t @ shopify-perf-kit-3.3.0.min.js:1
+(anonymous) @ shopify-perf-kit-3.3.0.min.js:1
+Promise.then
+<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.timeout @ shopify-perf-kit-3.3.0.min.js:1
+requestIdleCallback
+i @ shopify-perf-kit-3.3.0.min.js:1
+(index):331 [Fetch Interceptor] ✗ Blocked tracking call: https://landonorris.store/api/collect
+window.fetch @ (index):331
+sendBeacon @ shopify-perf-kit-3.3.0.min.js:1
+checkAndSendSignals @ shopify-perf-kit-3.3.0.min.js:1
+processAndSendSignals @ shopify-perf-kit-3.3.0.min.js:1
+<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.timeout @ shopify-perf-kit-3.3.0.min.js:1
+requestIdleCallback
+i @ shopify-perf-kit-3.3.0.min.js:1
+setTimeout
+t @ shopify-perf-kit-3.3.0.min.js:1
+(anonymous) @ shopify-perf-kit-3.3.0.min.js:1
+Promise.then
+<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.timeout @ shopify-perf-kit-3.3.0.min.js:1
+requestIdleCallback
+i @ shopify-perf-kit-3.3.0.min.js:1
+setTimeout
+t @ shopify-perf-kit-3.3.0.min.js:1
+(anonymous) @ shopify-perf-kit-3.3.0.min.js:1
+Promise.then
+<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.timeout @ shopify-perf-kit-3.3.0.min.js:1
+requestIdleCallback
+i @ shopify-perf-kit-3.3.0.min.js:1
+setTimeout
+t @ shopify-perf-kit-3.3.0.min.js:1
+(anonymous) @ shopify-perf-kit-3.3.0.min.js:1
+Promise.then
+<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.timeout @ shopify-perf-kit-3.3.0.min.js:1
+requestIdleCallback
+i @ shopify-perf-kit-3.3.0.min.js:1
+setTimeout
+t @ shopify-perf-kit-3.3.0.min.js:1
+(anonymous) @ shopify-perf-kit-3.3.0.min.js:1
+Promise.then
+<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.timeout @ shopify-perf-kit-3.3.0.min.js:1
+requestIdleCallback
+i @ shopify-perf-kit-3.3.0.min.js:1
+setTimeout
+t @ shopify-perf-kit-3.3.0.min.js:1
+(anonymous) @ shopify-perf-kit-3.3.0.min.js:1
+Promise.then
+<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.timeout @ shopify-perf-kit-3.3.0.min.js:1
+requestIdleCallback
+i @ shopify-perf-kit-3.3.0.min.js:1
+setTimeout
+t @ shopify-perf-kit-3.3.0.min.js:1
+(anonymous) @ shopify-perf-kit-3.3.0.min.js:1
+Promise.then
+<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.timeout @ shopify-perf-kit-3.3.0.min.js:1
+requestIdleCallback
+i @ shopify-perf-kit-3.3.0.min.js:1
+setTimeout
+t @ shopify-perf-kit-3.3.0.min.js:1
+(anonymous) @ shopify-perf-kit-3.3.0.min.js:1
+Promise.then
+<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.timeout @ shopify-perf-kit-3.3.0.min.js:1
+requestIdleCallback
+i @ shopify-perf-kit-3.3.0.min.js:1
+setTimeout
+t @ shopify-perf-kit-3.3.0.min.js:1
+(anonymous) @ shopify-perf-kit-3.3.0.min.js:1
+Promise.then
+<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.timeout @ shopify-perf-kit-3.3.0.min.js:1
+requestIdleCallback
+i @ shopify-perf-kit-3.3.0.min.js:1
+setTimeout
+t @ shopify-perf-kit-3.3.0.min.js:1
+(anonymous) @ shopify-perf-kit-3.3.0.min.js:1
+Promise.then
+<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.timeout @ shopify-perf-kit-3.3.0.min.js:1
+requestIdleCallback
+i @ shopify-perf-kit-3.3.0.min.js:1
+setTimeout
+t @ shopify-perf-kit-3.3.0.min.js:1
+(anonymous) @ shopify-perf-kit-3.3.0.min.js:1
+Promise.then
+<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.<computed>.timeout @ shopify-perf-kit-3.3.0.min.js:1
+requestIdleCallback
+i @ shopify-perf-kit-3.3.0.min.js:1
+```
+
+Por algum motivo, está vindo dois botões data-keen-next no lugar que era para ter um só, e o currency-selector está sempre aberto e não está sendo possível fechar ele.
+
+> pocketchangethe.world
+
+- Console Python:
+```
+127.0.0.1 - - [11/Mar/2026 08:25:35] code 404, message File not found
+127.0.0.1 - - [11/Mar/2026 08:25:35] "GET /_next/image/?url=%2Fcookie-icon.png&w=96&q=75 HTTP/1.1" 404 -
+127.0.0.1 - - [11/Mar/2026 08:25:35] code 404, message File not found
+127.0.0.1 - - [11/Mar/2026 08:25:35] "GET /sw.js HTTP/1.1" 404 -
+127.0.0.1 - - [11/Mar/2026 08:25:35] code 404, message File not found
+127.0.0.1 - - [11/Mar/2026 08:25:35] "GET /manifest.json HTTP/1.1" 404 -
+127.0.0.1 - - [11/Mar/2026 08:25:35] code 404, message File not found
+127.0.0.1 - - [11/Mar/2026 08:25:35] "GET /_next/image/?url=%2Fcookie-icon.png&w=96&q=75 HTTP/1.1" 404 -
+127.0.0.1 - - [11/Mar/2026 08:25:44] code 404, message File not found
+127.0.0.1 - - [11/Mar/2026 08:25:44] "GET /manifest.json HTTP/1.1" 404 -
+127.0.0.1 - - [11/Mar/2026 08:25:50] code 404, message File not found
+127.0.0.1 - - [11/Mar/2026 08:25:50] "GET /cookies/?_rsc=1r34m HTTP/1.1" 404 -
+127.0.0.1 - - [11/Mar/2026 08:25:50] code 404, message File not found
+127.0.0.1 - - [11/Mar/2026 08:25:50] "GET /privacy/?_rsc=1r34m HTTP/1.1" 404 -
+```
+
+- Console Web:
+```
+(index):377 [Fetch Interceptor] Installed with 128 mappings
+(index):378 [Fetch Interceptor] Basename index: 128 files
+(index):1524 Unchecked runtime.lastError: The message port closed before a response was received.
+(index):301 [Fetch Interceptor] ✓ Request -> assets/coin.glb
+(index):301 [Fetch Interceptor] ✓ Request -> assets/draco/versioned/decoders/1.5.5/draco_wasm_wrapper.js
+(index):301 [Fetch Interceptor] ✓ Request -> assets/draco/versioned/decoders/1.5.5/draco_decoder.wasm
+(index):270 [DOM Interceptor] ✓ link https://cdn.jsdelivr.net/gh/hiunicornstudio/unicornstudio.js@v2.0.1/dist/unicornStudio.umd.js -> assets/gh/hiunicornstudio/unicornstudio.js@v2.0.1/dist/unicornStudio.umd.js
+image/:1  Failed to load resource: the server responded with a status of 404 (File not found)
+3b0d6bcc3e310ca2.js:95 Service Worker registration failed: TypeError: Failed to register a ServiceWorker for scope ('http://localhost:8000/') with script ('http://localhost:8000/sw.js'): A bad HTTP response code (404) was received when fetching the script.
+(anonymous) @ 3b0d6bcc3e310ca2.js:95
+image/:1  Failed to load resource: the server responded with a status of 404 (File not found)
+manifest.json:1  Failed to load resource: the server responded with a status of 404 (File not found)
+(index):1 Manifest fetch from http://localhost:8000/manifest.json failed, code 404
+(index):241 [DOM Interceptor] ✓ script https://cdn.jsdelivr.net/gh/hiunicornstudio/unicornstudio.js@v2.0.1/dist/unicornStudio.umd.js -> assets/gh/hiunicornstudio/unicornstudio.js@v2.0.1/dist/unicornStudio.umd.js
+d434b5794abcb2c8.js:1 THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead.
+L @ d434b5794abcb2c8.js:1
+d434b5794abcb2c8.js:1 THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead.
+L @ d434b5794abcb2c8.js:1
+(index):301 [Fetch Interceptor] ✓ /animated-bg.json -> assets/animated-bg_8f776789733a.json
+d434b5794abcb2c8.js:1 THREE.THREE.Clock: This module has been deprecated. Please use THREE.Timer instead.
+L @ d434b5794abcb2c8.js:1
+68d4134def199930.js:50 Scene already initialized with this configuration, skipping...
+d434b5794abcb2c8.js:1 THREE.WebGLRenderer: Context Lost.
+manifest.json:1  Failed to load resource: the server responded with a status of 404 (File not found)
+68d4134def199930.js:50 Scene already initialized with this configuration, skipping...
+(index):317  GET http://localhost:8000/cookies/?_rsc=1r34m 404 (File not found)
+window.fetch @ (index):317
+R @ e92d492086a8c1b6.js:1
+er @ e92d492086a8c1b6.js:1
+Y @ e92d492086a8c1b6.js:1
+(anonymous) @ e92d492086a8c1b6.js:1
+(anonymous) @ e92d492086a8c1b6.js:1
+A @ e92d492086a8c1b6.js:1
+(index):317  GET http://localhost:8000/privacy/?_rsc=1r34m 404 (File not found)
+window.fetch @ (index):317
+R @ e92d492086a8c1b6.js:1
+er @ e92d492086a8c1b6.js:1
+Y @ e92d492086a8c1b6.js:1
+(anonymous) @ e92d492086a8c1b6.js:1
+(anonymous) @ e92d492086a8c1b6.js:1
+A @ e92d492086a8c1b6.js:1
+```
+
+- Ele conseguiu fazer funcionar as animações de fundo, do mouse, e ir mudando conforme vai scrollando a página. Agora só falta corrigir um problema na imagem do popup de cookie e resolver uns logs.
