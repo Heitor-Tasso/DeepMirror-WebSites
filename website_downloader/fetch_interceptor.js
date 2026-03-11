@@ -248,10 +248,109 @@
         return node;
     }
 
+    const originalSetAttribute = Element.prototype.setAttribute;
+
+    function toBrowserPath(localPath) {
+        if (!localPath) return localPath;
+        if (
+            localPath.startsWith('/') ||
+            localPath.startsWith('data:') ||
+            localPath.startsWith('blob:') ||
+            localPath.startsWith('http://') ||
+            localPath.startsWith('https://') ||
+            localPath.startsWith('//')
+        ) {
+            return localPath;
+        }
+        return '/' + localPath;
+    }
+
+    function rewriteSrcsetValue(srcset, referrer) {
+        if (!srcset) return srcset;
+
+        return srcset
+            .split(',')
+            .map((part) => {
+                const trimmed = part.trim();
+                if (!trimmed) return trimmed;
+
+                const match = trimmed.match(/^(\S+)(?:\s+(.+))?$/);
+                if (!match) return trimmed;
+
+                const originalUrl = match[1];
+                const descriptor = match[2] || '';
+                const localPath = getLocalPath(originalUrl, referrer);
+                const rewrittenUrl = localPath && localPath !== originalUrl
+                    ? toBrowserPath(localPath)
+                    : originalUrl;
+
+                return descriptor ? `${rewrittenUrl} ${descriptor}` : rewrittenUrl;
+            })
+            .join(', ');
+    }
+
+    function rewriteMediaAttributeValue(tagName, attrName, value, referrer) {
+        if (!value || typeof value !== 'string') return value;
+
+        if (attrName === 'srcset') {
+            return rewriteSrcsetValue(value, referrer);
+        }
+
+        const localPath = getLocalPath(value, referrer);
+        if (localPath && localPath !== value) {
+            return toBrowserPath(localPath);
+        }
+
+        return value;
+    }
+
+    function localizeMediaElement(node, referrer) {
+        if (!node || !node.tagName) return node;
+
+        const tagName = node.tagName.toLowerCase();
+        if (!['img', 'source', 'video', 'audio', 'track'].includes(tagName)) {
+            return node;
+        }
+
+        const mediaAttrs = ['src', 'srcset', 'poster'];
+        for (const attrName of mediaAttrs) {
+            const currentValue = node.getAttribute(attrName);
+            if (!currentValue) continue;
+
+            const rewrittenValue = rewriteMediaAttributeValue(
+                tagName,
+                attrName,
+                currentValue,
+                referrer || window.location.href
+            );
+            if (rewrittenValue && rewrittenValue !== currentValue) {
+                originalSetAttribute.call(node, attrName, rewrittenValue);
+                console.log('[DOM Interceptor] ✓', tagName, currentValue, '->', rewrittenValue);
+            }
+        }
+
+        return node;
+    }
+
+    function localizeMediaTree(root, referrer) {
+        if (!root || root.nodeType !== Node.ELEMENT_NODE) return;
+
+        localizeMediaElement(root, referrer);
+        if (typeof root.querySelectorAll !== 'function') return;
+
+        root.querySelectorAll('img, source, video, audio, track').forEach((element) => {
+            localizeMediaElement(element, referrer);
+        });
+    }
+
     function rewriteDynamicElement(node) {
         if (!node || !node.tagName) return node;
 
         const tagName = node.tagName.toLowerCase();
+        if (['img', 'source', 'video', 'audio', 'track'].includes(tagName)) {
+            return localizeMediaElement(node, window.location.href);
+        }
+
         if (tagName === 'script') {
             const originalSrc = node.getAttribute('src') || node.src;
             if (!originalSrc) return node;
@@ -315,6 +414,161 @@
     Node.prototype.replaceChild = function(newChild, oldChild) {
         return originalReplaceChild.call(this, rewriteDynamicElement(newChild), oldChild);
     };
+
+    Element.prototype.setAttribute = function(name, value) {
+        if (this && this.tagName && typeof name === 'string') {
+            const tagName = this.tagName.toLowerCase();
+            const attrName = name.toLowerCase();
+            if (
+                ['img', 'source', 'video', 'audio', 'track'].includes(tagName) &&
+                ['src', 'srcset', 'poster'].includes(attrName)
+            ) {
+                const rewrittenValue = rewriteMediaAttributeValue(
+                    tagName,
+                    attrName,
+                    String(value),
+                    window.location.href
+                );
+                return originalSetAttribute.call(this, name, rewrittenValue);
+            }
+        }
+
+        return originalSetAttribute.call(this, name, value);
+    };
+
+    function patchMediaProperty(proto, propertyName) {
+        if (!proto) return;
+        const descriptor = Object.getOwnPropertyDescriptor(proto, propertyName);
+        if (!descriptor || typeof descriptor.set !== 'function') return;
+
+        Object.defineProperty(proto, propertyName, {
+            configurable: true,
+            enumerable: descriptor.enumerable,
+            get: descriptor.get
+                ? function() {
+                    return descriptor.get.call(this);
+                }
+                : undefined,
+            set: function(value) {
+                const tagName = this.tagName ? this.tagName.toLowerCase() : '';
+                const rewrittenValue = rewriteMediaAttributeValue(
+                    tagName,
+                    propertyName.toLowerCase(),
+                    String(value),
+                    window.location.href
+                );
+                return descriptor.set.call(this, rewrittenValue);
+            },
+        });
+    }
+
+    patchMediaProperty(window.HTMLImageElement && window.HTMLImageElement.prototype, 'src');
+    patchMediaProperty(window.HTMLImageElement && window.HTMLImageElement.prototype, 'srcset');
+    patchMediaProperty(window.HTMLSourceElement && window.HTMLSourceElement.prototype, 'src');
+    patchMediaProperty(window.HTMLSourceElement && window.HTMLSourceElement.prototype, 'srcset');
+    patchMediaProperty(window.HTMLVideoElement && window.HTMLVideoElement.prototype, 'poster');
+    patchMediaProperty(window.HTMLMediaElement && window.HTMLMediaElement.prototype, 'src');
+
+    function observeMediaMutations() {
+        const root = document.documentElement || document;
+        if (!root || typeof MutationObserver === 'undefined') return;
+
+        const observer = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                if (mutation.type === 'attributes') {
+                    localizeMediaElement(mutation.target, window.location.href);
+                    continue;
+                }
+
+                mutation.addedNodes.forEach((node) => {
+                    localizeMediaTree(node, window.location.href);
+                });
+            }
+        });
+
+        observer.observe(root, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+            attributeFilter: ['src', 'srcset', 'poster'],
+        });
+    }
+
+    function installMediaLocalization() {
+        localizeMediaTree(document.documentElement, window.location.href);
+        observeMediaMutations();
+    }
+
+    const revealFallbackSeenAt = new WeakMap();
+
+    function isNearViewport(element) {
+        const rect = element.getBoundingClientRect();
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+        return rect.bottom >= -viewportHeight * 0.15 && rect.top <= viewportHeight * 1.15;
+    }
+
+    function releaseStaleRevealState() {
+        if (!document.documentElement.classList.contains('sr')) return;
+
+        const now = performance.now();
+        document.querySelectorAll('[data-reveal]').forEach((element) => {
+            if (!isNearViewport(element)) {
+                revealFallbackSeenAt.delete(element);
+                return;
+            }
+
+            const styles = getComputedStyle(element);
+            const isHidden = styles.visibility === 'hidden' || Number(styles.opacity || '1') <= 0.01;
+            if (!isHidden) {
+                revealFallbackSeenAt.delete(element);
+                return;
+            }
+
+            const firstSeenAt = revealFallbackSeenAt.get(element);
+            if (typeof firstSeenAt !== 'number') {
+                revealFallbackSeenAt.set(element, now);
+                return;
+            }
+
+            if (now - firstSeenAt < 1800) {
+                return;
+            }
+
+            element.style.visibility = 'visible';
+            element.style.opacity = '1';
+            element.removeAttribute('data-reveal');
+            element.setAttribute('data-interceptor-reveal-fallback', 'true');
+            revealFallbackSeenAt.delete(element);
+            console.log('[DOM Interceptor] ✓ reveal fallback', element.tagName.toLowerCase(), element.className || element.id || '');
+        });
+    }
+
+    let revealFallbackRaf = 0;
+    function scheduleRevealFallback() {
+        if (revealFallbackRaf) return;
+        revealFallbackRaf = requestAnimationFrame(() => {
+            revealFallbackRaf = 0;
+            releaseStaleRevealState();
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            installMediaLocalization();
+            scheduleRevealFallback();
+        }, { once: true });
+    } else {
+        installMediaLocalization();
+        scheduleRevealFallback();
+    }
+
+    window.addEventListener('scroll', scheduleRevealFallback, { passive: true });
+    window.addEventListener('resize', scheduleRevealFallback);
+    window.addEventListener('load', () => {
+        scheduleRevealFallback();
+        setTimeout(scheduleRevealFallback, 1500);
+        setTimeout(scheduleRevealFallback, 4000);
+    });
 
     // Intercept fetch()
     const originalFetch = window.fetch;

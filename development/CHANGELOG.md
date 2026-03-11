@@ -4,6 +4,54 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 
 ## [Unreleased]
 
+### Changed - Etapa de Manutenção: refactor estrutural e correção do empacotamento
+
+- **Contexto**: Ajustes de manutenção para destravar a investigação dos sites com bug, melhorar a organização interna do código e corrigir um regressão no artefato final em `downloads/`.
+- **Arquivos**:
+  - `app.py`
+  - `downloader.py`
+  - `website_downloader/clean/__init__.py`
+  - `website_downloader/clean/manager.py`
+  - `website_downloader/clean/clean_html.py`
+  - `website_downloader/clean/clean_css.py`
+  - `website_downloader/clean/clean_js.py`
+  - `website_downloader/post_process/__init__.py`
+  - `website_downloader/post_process/core.py`
+  - `website_downloader/post_process/baseline.py`
+  - `website_downloader/post_process/runtime_cleanup.py`
+
+- **Mudanças implementadas nesta rodada**:
+  - **Refactor do pipeline de limpeza**: `website_downloader/clean.py` foi transformado no pacote `website_downloader/clean/`, separando orquestração, limpeza de HTML, CSS e JS.
+  - **Refactor do pós-processamento**: `website_downloader/post_process.py` foi transformado no pacote `website_downloader/post_process/`, separando seleção de baseline, limpeza de runtime e núcleo do pipeline.
+  - **Correção da pasta final vazia**: o fluxo do app deixou de chamar `clean_site()` duas vezes; a limpeza agora fica centralizada em `downloader.py`, evitando downloads finais com apenas `serve.py`.
+  - **Correção da cópia `raw/clean`**: a criação de snapshots passou a copiar o conteúdo do site para `raw/` e `clean/` sem recursão sobre a própria pasta de destino.
+  - **Poda genérica de seções vazias**: o pós-processamento passou a remover seções top-level realmente vazias que só preservavam espaçamento em branco no replay offline.
+  - **Deduplicação genérica de fallback vs widget inicializado**: blocos adjacentes com o mesmo conteúdo semântico, mas com níveis diferentes de inicialização de slider/carrossel, agora podem ser reduzidos à versão já inicializada.
+
+### Changed - Etapa de Manutenção: rodada atual de captura/runtime
+
+- **Contexto**: Ajustes focados em `landonorris.store`, `getclave.io` e no empacotamento final em `raw-only`, sem marcar resolução final antes da validação manual.
+- **Arquivos**:
+  - `downloader.py`
+  - `website_downloader/network.py`
+  - `website_downloader/post_process.py`
+  - `website_downloader/fetch_interceptor.js`
+  - `templates/serve_template.py`
+
+- **Melhorias implementadas nesta rodada**:
+  - **Empacotamento `raw-only` religado na fachada pública**: o `WebsiteDownloader` voltou a chamar `clean_site()`, fazendo a saída final respeitar `raw/` + `serve.py` externo em vez de deixar o download “achatado” na raiz.
+  - **Limpeza de estado transitório do ScrollReveal**: o pós-processamento passou a remover `data-sr-id` persistido pelo runtime e a limpar estilos inline temporários de reveal (`visibility`, `opacity`, `transform`, `transition`, etc.), reduzindo casos em que cards ficavam invisíveis offline.
+  - **Fallback runtime para reveals presos**: o interceptor injetado passou a expor elementos com `data-reveal` que permanecem ocultos perto do viewport mesmo após a página estabilizar, sem aplicar CSS global invasivo.
+  - **Localização de mídia dinâmica no runtime**: atribuições tardias em `src`, `srcset` e `poster` feitas por hydration/client runtime passaram a ser reescritas para assets locais também em `setAttribute`, properties DOM e mutações dinâmicas.
+  - **Normalização de extensão pelo MIME real da resposta**: o gravador de rede agora consegue salvar assets com a extensão coerente ao `content-type` quando a URL e o payload divergem.
+  - **Normalização pós-captura de imagens raster negociadas**: quando o browser captura uma variante negociada que não bate com a extensão raster explícita da URL original, o pipeline refaz o download determinístico e regrava o asset no formato original antes do pós-processamento continuar.
+  - **Suporte explícito a AVIF no servidor local**: `serve.py` passou a reconhecer `.avif`, melhorando a entrega correta de imagens modernas no replay offline.
+
+- **Validação prática nesta rodada**:
+  - `landonorris.store`: novo download em `raw-only` ficou com as seções `radiant_featured_products_wRCGhJ` e `radiant_featured_products_QqcpGD` visíveis offline; os nós `.main-items-scroll` e `.button-container` não apareceram no DOM final validado.
+  - `getclave.io`: o erro `Reading out of bounds` deixou de aparecer na validação local; a página ficou autocontida sem dependência externa de imagens, e os 9 itens inicialmente reportados como “broken” zeraram após scroll para a área lazy correspondente.
+  - `palmer-dinnerware.com`: a validação offline mais recente manteve fundo correto, conteúdo visível e ausência de `404`/`requestfailed`; permaneceram apenas warnings não-bloqueantes de runtime/animação.
+
 ### Fixed - Etapa de Manutenção: Captura Runtime e Integridade de Assets
 
 - **Contexto**: Correções focadas nos sites `beda.imb.br`, `osmo.supply` e na robustez geral do pipeline de captura via runtime.

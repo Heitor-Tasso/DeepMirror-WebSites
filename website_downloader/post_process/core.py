@@ -5,13 +5,15 @@ File-based URL rewriting is handled by url_rewrite.URLRewriter.
 import os
 import re
 import json
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote, urljoin, urlparse
 from bs4 import BeautifulSoup, NavigableString
-from . import TRACKING_SCRIPTS, RESOURCE_TIMEOUT
-from .url_rewrite import URLRewriter, rewrite_css_urls
+from .. import TRACKING_SCRIPTS, RESOURCE_TIMEOUT
+from ..url_rewrite import URLRewriter, rewrite_css_urls
+from .baseline import PostProcessBaselineMixin
+from .runtime_cleanup import PostProcessRuntimeCleanupMixin
 
 
-class PostProcessor:
+class PostProcessor(PostProcessBaselineMixin, PostProcessRuntimeCleanupMixin):
     def __init__(self, base_url, output_dir, log_callback, network_recorder):
         self.base_url = base_url
         self.output_dir = output_dir
@@ -23,7 +25,7 @@ class PostProcessor:
 
         # Path to the JS interceptor template
         self._interceptor_js_path = os.path.join(
-            os.path.dirname(__file__), 'fetch_interceptor.js'
+            os.path.dirname(os.path.dirname(__file__)), 'fetch_interceptor.js'
         )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -39,11 +41,13 @@ class PostProcessor:
 
         # DOM-level transformations
         self._cleanup_runtime_dom_state(soup)
+        self._remove_runtime_duplicate_wrappers(soup)
         if is_ssr_framework:
             if self._should_prune_runtime_nodes(soup):
                 self._prune_runtime_only_nodes(soup)
             self._restore_empty_runtime_hosts(soup)
         self._restore_missing_original_support_nodes(soup)
+        self._remove_duplicate_enhanced_fallback_blocks(soup)
         self._restore_original_form_controls(soup)
         self._restore_original_inline_styles(soup)
         self._restore_original_svg_transforms(soup)
@@ -66,11 +70,13 @@ class PostProcessor:
         self._inject_external_preload_bootstrap(soup)
         self._remove_tracking_scripts(soup)
         self._remove_tracking_widgets(soup)
+        self._remove_authoring_bootstrap(soup)
         self._inject_import_map(soup)
         self._inject_shopify_bootstrap(soup)
 
         # Inject fetch interceptor before serializing
         self._inject_fetch_interceptor(soup)
+        self._remove_authoring_bootstrap(soup)
 
         html_output = str(soup)
 
@@ -82,6 +88,7 @@ class PostProcessor:
         # String-level HTML post-processing
         html_output = self.rewriter.rewrite_basenames_in_html(html_output)
         html_output = self.rewriter.rewrite_nextjs_images_in_html(html_output)
+        html_output = self._finalize_authoring_cleanup(html_output)
 
         return html_output
 
@@ -90,184 +97,18 @@ class PostProcessor:
         with open(os.path.join(self.output_dir, 'index.html'), 'w', encoding='utf-8') as f:
             f.write(html_output)
 
-    def _body_has_meaningful_ssr_content(self, soup):
-        """Heuristic to detect whether the original HTML already contains useful body markup."""
-        body = soup.find('body')
-        if not body:
-            return False
+    def _finalize_authoring_cleanup(self, html_output):
+        """Run a final authoring-bootstrap cleanup on the serialized HTML."""
+        if (
+            '__framer-editorbar' not in html_output
+            and 'framer.com/edit' not in html_output
+            and 'app.framerstatic.com/' not in html_output
+        ):
+            return html_output
 
-        element_children = [child for child in body.children if getattr(child, 'name', None)]
-        if len(element_children) >= 3:
-            return True
-
-        text_content = ' '.join(body.stripped_strings)
-        return len(text_content) >= 200
-
-    def _select_document_baseline(self, html_content):
-        """
-        Choose the safest HTML baseline for post-processing.
-
-        For SSR frameworks, page.content() can capture a heavily mutated runtime
-        DOM that no longer matches the server response expected by hydration.
-        In those cases prefer the original HTML captured from the network.
-        """
-        original_html = self.network.get_document_html(self.base_url)
-        if not original_html or original_html == html_content:
-            return html_content
-
-        original_soup = BeautifulSoup(original_html, 'html.parser')
-        is_ssr_framework = any([
-            original_soup.find(id='__next') is not None,
-            original_soup.find(id='__nuxt') is not None,
-            original_soup.find(id='___gatsby') is not None,
-            'self.__next_f.push' in original_html,
-            '__NEXT_DATA__' in original_html,
-        ])
-
-        if not is_ssr_framework:
-            return html_content
-
-        if not self._body_has_meaningful_ssr_content(original_soup):
-            return html_content
-
-        self.log("   Usando HTML original da resposta como baseline do documento")
-        return original_html
-
-    def _get_original_script_urls(self):
-        """Return the external script URLs present in the original HTML response."""
-        original_soup = self._get_original_html_soup()
-        if not original_soup:
-            self._original_script_urls = None
-            return None
-
-        if self._original_script_urls is not None:
-            return self._original_script_urls
-
-        self._original_script_urls = {
-            urljoin(self.base_url, script.get('src'))
-            for script in original_soup.find_all('script', src=True)
-            if script.get('src')
-        }
-        return self._original_script_urls
-
-    def _get_original_html_soup(self):
-        """Return the original HTML response parsed as BeautifulSoup."""
-        if self._original_html_soup is not None:
-            return self._original_html_soup
-
-        original_html = self.network.get_document_html(self.base_url)
-        if not original_html:
-            return None
-
-        self._original_html_soup = BeautifulSoup(original_html, 'html.parser')
-        return self._original_html_soup
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # DOM transformations
-    # ─────────────────────────────────────────────────────────────────────────
-
-    def _remove_canvas_snapshots(self, soup):
-        """Remove Playwright-captured canvas elements (width + height + data-engine)."""
-        removed = 0
-        for canvas in soup.find_all('canvas'):
-            if canvas.has_attr('width') and canvas.has_attr('height') and canvas.has_attr('data-engine'):
-                self.log(f"   Removendo canvas renderizado: {canvas.get('width')}x{canvas.get('height')}")
-                canvas.decompose()
-                removed += 1
-        if removed:
-            self.log(f"   Removidos {removed} canvas renderizados (Playwright snapshots)")
-
-    def _cleanup_runtime_dom_state(self, soup):
-        """
-        Remove transient runtime flags/styles saved by page.content().
-
-        These markers are useful while the live page is running, but persisting
-        them into the offline HTML can block re-initialization on the next load.
-        """
-        initialized_attrs_removed = 0
-        animation_play_state_removed = 0
-        transform_style_resets = 0
-        playwright_attrs_removed = 0
-
-        transient_style_props = {'translate', 'rotate', 'scale', 'transform-origin'}
-        transient_class_markers = {
-            'klaviyo',
-            'needsclick',
-            'kl-private-reset-css',
-            'cookiebot',
-            'cybotcookiebotdialog',
-            'web-pixels',
-            'web-pixel',
-            'shopify-privacy',
-        }
-
-        for element in soup.find_all(True):
-            if not isinstance(getattr(element, 'attrs', None), dict):
-                continue
-
-            for attr in list(element.attrs.keys()):
-                if attr.endswith('-initialized'):
-                    del element[attr]
-                    initialized_attrs_removed += 1
-                    continue
-                if attr.startswith('data-playwright'):
-                    del element[attr]
-                    playwright_attrs_removed += 1
-
-            classes = element.get('class', [])
-            if isinstance(classes, str):
-                classes = classes.split()
-            if classes:
-                filtered_classes = [
-                    cls for cls in classes
-                    if not any(marker in cls.lower() for marker in transient_class_markers)
-                ]
-                if filtered_classes != classes:
-                    element['class'] = filtered_classes
-
-            style = element.get('style')
-            if not style:
-                continue
-
-            declarations = []
-            for raw_decl in style.split(';'):
-                if ':' not in raw_decl:
-                    continue
-                key, value = raw_decl.split(':', 1)
-                key = key.strip().lower()
-                value = value.strip()
-                if not key:
-                    continue
-                declarations.append((key, value))
-
-            if not declarations:
-                continue
-
-            kept = [(key, value) for key, value in declarations if key != 'animation-play-state']
-            if len(kept) != len(declarations):
-                animation_play_state_removed += 1
-
-            # GSAP often leaves transform bookkeeping inline after the initial
-            # run. If those are the only persisted styles, drop them so the next
-            # runtime can compute its own clean baseline.
-            if kept and all(key in transient_style_props for key, _ in kept):
-                element.attrs.pop('style', None)
-                transform_style_resets += 1
-                continue
-
-            if kept:
-                element['style'] = '; '.join(f"{key}: {value}" for key, value in kept) + ';'
-            else:
-                element.attrs.pop('style', None)
-
-        if initialized_attrs_removed:
-            self.log(f"   Removidos {initialized_attrs_removed} flags de inicialização em runtime")
-        if playwright_attrs_removed:
-            self.log(f"   Removidos {playwright_attrs_removed} atributos temporários do Playwright")
-        if animation_play_state_removed:
-            self.log(f"   Limpos {animation_play_state_removed} estados transitórios de animation-play-state")
-        if transform_style_resets:
-            self.log(f"   Limpos {transform_style_resets} estilos transitórios de transform do runtime")
+        soup = BeautifulSoup(html_output, 'html.parser')
+        self._remove_authoring_bootstrap(soup)
+        return str(soup)
 
     def _restore_empty_runtime_hosts(self, soup):
         """
@@ -367,6 +208,51 @@ class PostProcessor:
 
         return False
 
+    def _find_restore_subtree_root(self, original_elem, current_body, path_lookup, signature_lookup):
+        """Return the highest missing ancestor whose parent still matches the current DOM."""
+        subtree_root = original_elem
+        cursor = original_elem
+
+        while True:
+            parent = cursor.parent if getattr(cursor.parent, 'name', None) else None
+            if parent is None or parent.name in {'body', 'html'}:
+                return subtree_root, current_body
+
+            matched_parent = self._match_original_element(parent, path_lookup, signature_lookup)
+            if matched_parent is not None:
+                return subtree_root, matched_parent
+
+            subtree_root = parent
+            cursor = parent
+
+    def _insert_restored_subtree(self, target_parent, original_root, clone, path_lookup, signature_lookup):
+        """Insert a restored subtree near its original sibling position."""
+        original_parent = original_root.parent if getattr(original_root.parent, 'name', None) else None
+        if original_parent is None:
+            target_parent.append(clone)
+            return
+
+        siblings = [child for child in original_parent.children if getattr(child, 'name', None)]
+        try:
+            index = siblings.index(original_root)
+        except ValueError:
+            target_parent.append(clone)
+            return
+
+        for sibling in reversed(siblings[:index]):
+            matched_sibling = self._match_original_element(sibling, path_lookup, signature_lookup)
+            if matched_sibling is not None and matched_sibling.parent is target_parent:
+                matched_sibling.insert_after(clone)
+                return
+
+        for sibling in siblings[index + 1:]:
+            matched_sibling = self._match_original_element(sibling, path_lookup, signature_lookup)
+            if matched_sibling is not None and matched_sibling.parent is target_parent:
+                matched_sibling.insert_before(clone)
+                return
+
+        target_parent.append(clone)
+
     def _restore_missing_original_support_nodes(self, soup):
         """
         Restore original source nodes that page.content() may lose after client boot.
@@ -385,38 +271,55 @@ class PostProcessor:
             return
 
         _, original_signature_lookup = self._build_original_element_lookups(original_soup)
-        current_path_lookup, current_signature_lookup = self._build_original_element_lookups(soup)
         restored = 0
+        attempted_roots = set()
 
-        for original_elem in original_body.find_all(True):
-            signature = self._element_identity_signature(original_elem)
-            if not signature:
-                continue
-            if signature[0] == 'class' and len(original_signature_lookup.get(signature, [])) != 1:
-                continue
-            if self._match_original_element(original_elem, current_path_lookup, current_signature_lookup):
-                continue
-            if not self._is_support_source_node(original_elem):
-                continue
+        while True:
+            current_path_lookup, current_signature_lookup = self._build_original_element_lookups(soup)
+            changed = False
 
-            clone_soup = BeautifulSoup(str(original_elem), 'html.parser')
-            clone = clone_soup.find(True)
-            if clone is None:
-                continue
+            for original_elem in original_body.find_all(True):
+                signature = self._element_identity_signature(original_elem)
+                if not signature:
+                    continue
+                if signature[0] == 'class' and len(original_signature_lookup.get(signature, [])) != 1:
+                    continue
+                if self._match_original_element(original_elem, current_path_lookup, current_signature_lookup):
+                    continue
+                if not self._is_support_source_node(original_elem):
+                    continue
 
-            original_parent = original_elem.parent if getattr(original_elem.parent, 'name', None) else None
-            target_parent = current_body
-            if original_parent is not None:
-                matched_parent = self._match_original_element(
-                    original_parent,
+                subtree_root, target_parent = self._find_restore_subtree_root(
+                    original_elem,
+                    current_body,
                     current_path_lookup,
                     current_signature_lookup,
                 )
-                if matched_parent is not None:
-                    target_parent = matched_parent
+                subtree_root_path = self._element_dom_path(subtree_root)
+                if subtree_root_path in attempted_roots:
+                    continue
+                if self._match_original_element(subtree_root, current_path_lookup, current_signature_lookup):
+                    continue
 
-            target_parent.append(clone)
-            restored += 1
+                clone_soup = BeautifulSoup(str(subtree_root), 'html.parser')
+                clone = clone_soup.find(True)
+                if clone is None:
+                    continue
+
+                attempted_roots.add(subtree_root_path)
+                self._insert_restored_subtree(
+                    target_parent,
+                    subtree_root,
+                    clone,
+                    current_path_lookup,
+                    current_signature_lookup,
+                )
+                restored += 1
+                changed = True
+                break
+
+            if not changed:
+                break
 
         if restored:
             self.log(f"   Restaurados {restored} nós-fonte do HTML original consumidos pelo runtime")
@@ -806,6 +709,33 @@ class PostProcessor:
 
         return path_lookup, signature_lookup
 
+    def _path_match_is_compatible(self, current_elem, original_elem):
+        """Validate path-based matches before accepting them as equivalent."""
+        if current_elem is None or original_elem is None:
+            return False
+        if current_elem.name != original_elem.name:
+            return False
+
+        current_id = current_elem.get('id')
+        original_id = original_elem.get('id')
+        if current_id or original_id:
+            return current_id == original_id
+
+        current_classes = set(self._normalized_classes(current_elem))
+        original_classes = set(self._normalized_classes(original_elem))
+        if original_classes:
+            return original_classes.issubset(current_classes)
+        if current_classes:
+            return False
+
+        for attr in ('role', 'aria-label', 'name', 'type'):
+            current_value = current_elem.get(attr)
+            original_value = original_elem.get(attr)
+            if current_value or original_value:
+                return current_value == original_value
+
+        return True
+
     def _match_original_element(self, current_elem, path_lookup, signature_lookup):
         """Match a current DOM node back to the original HTML."""
         if current_elem is None or current_elem.parent is None:
@@ -814,7 +744,7 @@ class PostProcessor:
             return None
 
         original_elem = path_lookup.get(self._element_dom_path(current_elem))
-        if original_elem:
+        if original_elem and self._path_match_is_compatible(current_elem, original_elem):
             return original_elem
 
         signature = self._element_identity_signature(current_elem)
@@ -1030,60 +960,6 @@ class PostProcessor:
         if deduplicated:
             self.log(f"   Removidos {deduplicated} placeholders duplicados de CSS-in-JS")
 
-    def _fix_scroll_blocking(self, soup):
-        """Remove scroll-blocking classes/attrs and inject minimal scroll-fix CSS."""
-        self.log("🔧 Corrigindo problemas de scroll para visualização offline...")
-
-        html_elem = soup.find('html')
-        if html_elem:
-            classes = html_elem.get('class', [])
-            if isinstance(classes, str):
-                classes = classes.split()
-            blocking = {'overflow-hidden', 'no-scroll', 'scroll-lock', 'fixed', 'modal-open'}
-            new_cls = [c for c in classes if c.lower() not in blocking]
-            if new_cls != classes:
-                html_elem['class'] = new_cls
-
-        body = soup.find('body')
-        if body:
-            classes = body.get('class', [])
-            if isinstance(classes, str):
-                classes = classes.split()
-            blocking = {'overflow-hidden', 'no-scroll', 'scroll-lock', 'fixed', 'modal-open'}
-            new_cls = [c for c in classes if c.lower() not in blocking]
-            if 'items-center' in new_cls and 'flex' in new_cls:
-                new_cls = ['items-start' if c == 'items-center' else c for c in new_cls]
-                self.log("   Corrigida centralização vertical do body")
-            if new_cls != classes:
-                body['class'] = new_cls
-
-        scroll_fix_css = """
-        /* Scroll fixes - MINIMAL SCOPE */
-        html, body {
-            overflow: auto !important;
-            overflow-x: hidden !important;
-            height: auto !important;
-            min-height: 100% !important;
-            scroll-behavior: auto !important;
-        }
-        .loader, .preloader, .loading, [class*="loader"], [class*="preloader"] {
-            display: none !important;
-            opacity: 0 !important;
-        }
-        """
-
-        head = soup.find('head')
-        if head:
-            fix_style = soup.new_tag('style')
-            fix_style['data-scroll-fix'] = 'true'
-            fix_style.string = scroll_fix_css
-            head.append(fix_style)
-            self.log("   Injetado CSS para corrigir scroll")
-
-        # Preserve scroll libraries and let the runtime initialize normally.
-        # The minimal CSS override above is enough to prevent hard scroll locks
-        # without breaking controllers such as Lenis/Locomotive.
-
     def _remove_wrapper_iframes(self, soup):
         """Remove preview/wrapper iframes from site builders."""
         for iframe in soup.find_all('iframe'):
@@ -1213,7 +1089,7 @@ class PostProcessor:
             else:
                 # CRITICAL: Download failed - check if it's a critical script
                 # Don't remove tracking scripts (they're expected to fail)
-                from . import SKIP_DOMAINS
+                from .. import SKIP_DOMAINS
 
                 is_tracking = any(domain in src for domain in SKIP_DOMAINS)
 
@@ -1522,6 +1398,45 @@ class PostProcessor:
         if removed:
             self.log(f"   Removidos {removed} widgets de tracking/marketing")
 
+    def _remove_authoring_bootstrap(self, soup):
+        """Remove editor/preview overlays injected by site builders."""
+        removed = 0
+        authoring_markers = {
+            '__framer-editorbar',
+            '__framer_force_showing_editorbar_since',
+            'framer.com/edit',
+            'framer.com/bootstrap.',
+            'app.framerstatic.com/editorbar',
+            'app.framerstatic.com/',
+        }
+
+        for element in list(soup.find_all(['script', 'style', 'iframe', 'link', 'div'])):
+            if element.parent is None:
+                continue
+            if element.name == 'script' and element.get('data-generated-importmap') == 'true':
+                continue
+
+            marker_values = []
+            if isinstance(getattr(element, 'attrs', None), dict):
+                for attr_value in element.attrs.values():
+                    if isinstance(attr_value, list):
+                        marker_values.extend(str(item).lower() for item in attr_value)
+                    else:
+                        marker_values.append(str(attr_value).lower())
+
+            if element.name in {'script', 'style'}:
+                marker_values.append((element.get_text() or '').lower())
+
+            if not marker_values:
+                continue
+
+            if any(marker in value for value in marker_values for marker in authoring_markers):
+                element.decompose()
+                removed += 1
+
+        if removed:
+            self.log(f"   Removidos {removed} elementos de bootstrap de autoria/preview")
+
     def _inject_external_preload_bootstrap(self, soup):
         """
         Materialize external SDK preloads into executable script tags offline.
@@ -1662,9 +1577,61 @@ class PostProcessor:
         else:
             head.insert(0, script_tag)
 
+    def _is_authoring_bootstrap_resource(self, remote_url, local_path=''):
+        """Skip builder/editor bootstrap assets from generated runtime maps."""
+        haystack = ' '.join(
+            value.lower()
+            for value in (remote_url or '', local_path or '')
+            if value
+        )
+        markers = (
+            'framer.com/edit',
+            'framer.com/bootstrap.',
+            'app.framerstatic.com/editorbar',
+            'app.framerstatic.com/',
+            '/assets/edit/',
+            '/assets/edit?',
+            '/edit/init.mjs',
+        )
+        return any(marker in haystack for marker in markers)
+
+    def _authoring_import_overrides(self):
+        """Provide no-op module overrides for builder-only runtime imports."""
+        resource_map = self.network.get_resource_map()
+        if not resource_map:
+            return {}
+
+        joined_urls = ' '.join(resource_map.keys()).lower()
+        if 'framer.com/edit/init.mjs' not in joined_urls and 'app.framerstatic.com/' not in joined_urls:
+            return {}
+
+        noop_module = (
+            "export function createEditorBar(){"
+            "return function FramerEditorBar(){return null;};"
+            "}"
+            "export default { createEditorBar };"
+        )
+        stub_specifier = f"data:text/javascript;charset=utf-8,{quote(noop_module)}"
+        return {
+            'https://framer.com/edit/init.mjs': stub_specifier,
+            'http://framer.com/edit/init.mjs': stub_specifier,
+        }
+
+    def _runtime_resource_map(self):
+        """Filter authoring bootstrap assets from the runtime URL map."""
+        resource_map = self.network.get_resource_map()
+        if not resource_map:
+            return {}
+
+        return {
+            remote_url: local_path
+            for remote_url, local_path in resource_map.items()
+            if not self._is_authoring_bootstrap_resource(remote_url, local_path)
+        }
+
     def _build_import_map(self):
         """Map absolute JS module specifiers to local offline assets."""
-        resource_map = self.network.get_resource_map()
+        resource_map = self._runtime_resource_map()
         if not resource_map:
             return {}
 
@@ -1685,6 +1652,8 @@ class PostProcessor:
                 imports[f"http://{parsed.netloc}{parsed.path}"] = local_specifier
             elif parsed.scheme == 'http':
                 imports[f"https://{parsed.netloc}{parsed.path}"] = local_specifier
+
+        imports.update(self._authoring_import_overrides())
 
         return imports
 
@@ -1713,7 +1682,7 @@ class PostProcessor:
         """Read the JS template, inject resource map, and prepend to <head>."""
         self.log("💉 Injetando fetch interceptor aprimorado...")
 
-        resource_map = self.network.get_resource_map()
+        resource_map = self._runtime_resource_map()
         if not resource_map:
             self.log("   Resource map vazio, interceptor não injetado")
             return

@@ -455,7 +455,7 @@ class BrowserController:
         We wait until we see substantive <style> tags in the DOM.
         """
         timeout = CSS_INJECTION_TIMEOUT if timeout is None else timeout
-        self.log("💅 Aguardando injeção de CSS-in-JS...")
+        self.log("Aguardando injeção de CSS-in-JS...")
 
         try:
             # Wait for <style> tags with data-styled or substantive content
@@ -499,7 +499,7 @@ class BrowserController:
 
         This method simulates these scenarios to force chunk loading.
         """
-        self.log("🔄 Forçando carregamento de chunks dinâmicos (Next.js/React)...")
+        self.log("Forçando carregamento de chunks dinâmicos (Next.js/React)...")
 
         try:
             # Step 1: Detect framework

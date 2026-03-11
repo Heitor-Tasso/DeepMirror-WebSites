@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from website_downloader.browser import BrowserController
 from website_downloader.network import NetworkRecorder
 from website_downloader.post_process import PostProcessor
+from website_downloader.clean import clean_site
 from pathlib import Path
 
 
@@ -111,9 +112,11 @@ class WebsiteDownloader:
         # 9.7. Fallback-download de qualquer URL vista pelo browser que não foi salva nem ignorada
         self.log("Verificando todos os assets vistos pelo browser para fallback...")
         # Pega todos os URLs vistos pelo handler de resposta
-        all_seen_urls = [url for url, status in self.network.all_seen_urls]
+        all_seen_urls = list(dict.fromkeys(url for url, status in self.network.all_seen_urls))
         # Remove duplicados e já baixados/ignorados
-        already = set(self.network.resource_cache.keys()) | set(self.network.ignored_resources)
+        ignored_urls = {url for url, _reason in self.network.ignored_resources}
+        failed_urls = {url for url, _reason in self.network.failed_resources}
+        already = set(self.network.resource_cache.keys()) | ignored_urls | failed_urls
         fallback_urls = [u for u in all_seen_urls if u not in already]
         if fallback_urls:
             self.log(f"   {len(fallback_urls)} URLs vistas não salvas, tentando fallback...")
@@ -133,10 +136,14 @@ class WebsiteDownloader:
         # 12. Save HTML
         self.post_processor.save_html(html_output)
 
-        # 13. FASE 3: Include serve.py script in download
+        # 13. Organize final artifact into raw/clean variants
+        self.log("Organizando artefato final...")
+        clean_site(self.output_dir, self.log_callback)
+
+        # 14. FASE 3: Include serve.py selector script in download root
         self._create_serve_script()
 
-        # 14. FASE 6: Generate final report
+        # 15. FASE 6: Generate final report
         elapsed = time.time() - start_time
         self.log(f"\nTempo total: {elapsed:.1f}s")
 

@@ -33,18 +33,30 @@ class NetworkRecorder:
         asset_refs_found = 0
         assets_downloaded = 0
         seen_refs = set()
+        scanned_js_urls = set()
+        js_queue = [
+            (url, local_path)
+            for url, local_path in self.resource_cache.items()
+            if local_path.endswith(('.js', '.mjs'))
+        ]
 
         asset_patterns = [
             r'["\']((?:https?:)?//[^"\']+\.(?:css|js|mjs)(?:\?[^"\']*)?)["\']',
+            r'["\']((?:\./|\.\./)[A-Za-z0-9@_%./-]+\.(?:css|js|mjs|png|jpe?g|svg|webp|avif|gif|woff2?|ttf|otf|eot|json|webmanifest|wasm|ico|xml|txt)(?:\?[^"\']*)?)["\']',
             r'["\']((?:\./|\.\./|/)?(?:_next/static/(?:css|chunks)|assets|static)/(?:[A-Za-z0-9@_./-]+)\.(?:css|js|mjs|png|jpe?g|svg|webp|avif|gif|woff2?|ttf|otf|eot|json|wasm))["\']',
             r'["\']((?:\./|\.\./)?[A-Za-z0-9][A-Za-z0-9_.-]*-[A-Za-z0-9_.-]+\.(?:css|js|mjs|png|jpe?g|svg|webp|avif|gif|woff2?|ttf|otf|eot|json|wasm))["\']',
             r'["\']((?:/[A-Za-z0-9@_./-]+)\.(?:css|js|mjs|png|jpe?g|svg|webp|avif|gif|woff2?|ttf|otf|eot|json|webmanifest|wasm|ico|xml|txt)(?:\?[^"\']*)?)["\']',
+            r'`((?:\./|\.\./)[A-Za-z0-9@_%./-]+\.(?:css|js|mjs|png|jpe?g|svg|webp|avif|gif|woff2?|ttf|otf|eot|json|webmanifest|wasm|ico|xml|txt)(?:\?[^`]*)?)`',
+            r'`((?:/[A-Za-z0-9@_./-]+)\.(?:css|js|mjs|png|jpe?g|svg|webp|avif|gif|woff2?|ttf|otf|eot|json|webmanifest|wasm|ico|xml|txt)(?:\?[^`]*)?)`',
         ]
 
-        # Scan all saved JS files
-        for url, local_path in list(self.resource_cache.items()):
-            if not local_path.endswith(('.js', '.mjs')):
+        # Scan JS files recursively because newly-downloaded chunks can reveal
+        # additional imports that were not present in the initial cache snapshot.
+        while js_queue:
+            url, local_path = js_queue.pop(0)
+            if url in scanned_js_urls:
                 continue
+            scanned_js_urls.add(url)
 
             abs_path = os.path.join(self.assets_dir, local_path.replace('assets/', '', 1))
             if not os.path.isfile(abs_path):
@@ -78,10 +90,14 @@ class NetworkRecorder:
                             # Resolve relative chunk paths against the JS file URL itself.
                             asset_url = urljoin(url, asset_ref)
 
-                        if asset_url not in self.resource_cache:
+                        local_asset = self.resource_cache.get(asset_url)
+                        if not local_asset:
                             local_asset = self._download_fallback(asset_url)
                             if local_asset:
                                 assets_downloaded += 1
+
+                        if local_asset and local_asset.endswith(('.js', '.mjs')):
+                            js_queue.append((asset_url, local_asset))
 
             except Exception as e:
                 # Silent failure - don't break on parse errors
@@ -399,24 +415,101 @@ class NetworkRecorder:
         path = parsed.path
         _, ext = os.path.splitext(path)
 
-        if ext and len(ext) <= 6:
-            return ext
-
-        if content_type:
-            mime = content_type.split(';')[0].strip().lower()
-
-            # Explicit mapping for common API content-types
-            if 'json' in mime:
-                return '.json'
-            elif mime == 'text/plain':
-                # Don't force .txt for plain text - rely on URL
-                pass
-            else:
-                guessed = mimetypes.guess_extension(mime)
-                if guessed:
-                    return guessed
+        preferred_ext = self._prefer_content_extension(ext, content_type)
+        if preferred_ext:
+            return preferred_ext
 
         return ''
+
+    def _normalize_extension(self, ext):
+        """Normalize equivalent extensions to a stable canonical form."""
+        aliases = {
+            '.htm': '.html',
+            '.jpeg': '.jpg',
+            '.jpe': '.jpg',
+        }
+        normalized = (ext or '').strip().lower()
+        return aliases.get(normalized, normalized)
+
+    def _extension_from_content_type(self, content_type=''):
+        """Infer the most specific extension from a response content-type."""
+        if not content_type:
+            return ''
+
+        mime = content_type.split(';')[0].strip().lower()
+        if not mime:
+            return ''
+
+        explicit = {
+            'application/javascript': '.js',
+            'application/json': '.json',
+            'application/ld+json': '.json',
+            'application/manifest+json': '.webmanifest',
+            'application/wasm': '.wasm',
+            'font/otf': '.otf',
+            'font/ttf': '.ttf',
+            'font/woff': '.woff',
+            'font/woff2': '.woff2',
+            'image/avif': '.avif',
+            'image/jpeg': '.jpg',
+            'image/png': '.png',
+            'image/svg+xml': '.svg',
+            'image/webp': '.webp',
+            'model/gltf+json': '.gltf',
+            'model/gltf-binary': '.glb',
+            'text/css': '.css',
+            'text/html': '.html',
+            'text/javascript': '.js',
+        }
+        if mime in explicit:
+            return explicit[mime]
+
+        if 'json' in mime:
+            return '.json'
+
+        if mime == 'text/plain':
+            return ''
+
+        guessed = mimetypes.guess_extension(mime)
+        if guessed:
+            return self._normalize_extension(guessed)
+
+        return ''
+
+    def _prefer_content_extension(self, url_ext, content_type=''):
+        """
+        Prefer the response MIME when it materially disagrees with the URL.
+
+        This keeps runtime-captured assets on disk with the real binary format,
+        which is critical for images negotiated as AVIF/WebP behind .png/.jpg
+        URLs and for opaque media/font payloads.
+        """
+        normalized_url_ext = self._normalize_extension(url_ext)
+        if normalized_url_ext and len(normalized_url_ext) > 6:
+            normalized_url_ext = ''
+
+        mime = (content_type or '').split(';')[0].strip().lower()
+        mime_ext = self._extension_from_content_type(content_type)
+
+        if not mime_ext:
+            return normalized_url_ext
+
+        if not normalized_url_ext:
+            return mime_ext
+
+        if normalized_url_ext == mime_ext:
+            return normalized_url_ext
+
+        if mime in {'application/octet-stream', 'binary/octet-stream'}:
+            return normalized_url_ext
+
+        if mime.startswith(('image/', 'audio/', 'video/', 'font/')):
+            return mime_ext
+
+        if mime in {'application/wasm', 'model/gltf+json', 'model/gltf-binary'}:
+            return mime_ext
+
+        return normalized_url_ext
 
     def _generate_filename(self, url, content_type='', preserve_structure=True):
         """
@@ -473,6 +566,12 @@ class NetworkRecorder:
             # Check: last part must have a file extension or be a meaningful name
             last_part = parts[-1] if parts else ''
             if '?' not in path_clean and last_part:
+                stem, current_ext = os.path.splitext(last_part)
+                preferred_ext = self._prefer_content_extension(current_ext, content_type)
+                if preferred_ext and preferred_ext != self._normalize_extension(current_ext):
+                    parts[-1] = f"{stem}{preferred_ext}"
+                    last_part = parts[-1]
+
                 clean_parts = []
                 parsed_base = urlparse(self.base_url)
                 same_origin = _normalize_host(parsed.netloc) == _normalize_host(parsed_base.netloc)
@@ -517,10 +616,11 @@ class NetworkRecorder:
 
         return f"{name}_{url_hash}{ext}"
 
-    def _save_resource(self, url, content, content_type=''):
+    def _save_resource(self, url, content, content_type='', overwrite=False):
         """Save a resource to disk and return relative path"""
-        if url in self.resource_cache:
-            return self.resource_cache[url]
+        existing_rel_path = self.resource_cache.get(url)
+        if existing_rel_path and not overwrite:
+            return existing_rel_path
 
         if not content:
             return None
@@ -550,8 +650,188 @@ class NetworkRecorder:
             f.write(content if isinstance(content, bytes) else content.encode('utf-8'))
 
         rel_path = f"assets/{filename}"
+        if overwrite and existing_rel_path and existing_rel_path != rel_path:
+            existing_path = os.path.join(self.assets_dir, existing_rel_path.replace('assets/', '', 1))
+            if os.path.isfile(existing_path):
+                try:
+                    os.remove(existing_path)
+                except OSError:
+                    pass
         self.resource_cache[url] = rel_path
         return rel_path
+
+    def _looks_binary_like(self, body, sample_size=4096):
+        """Detect opaque payloads that should preserve their exact bytes."""
+        if not body:
+            return False
+
+        sample = body[:sample_size]
+        if not sample:
+            return False
+
+        if b'\x00' in sample:
+            return True
+
+        control_bytes = sum(1 for byte in sample if byte < 9 or 13 < byte < 32)
+        return control_bytes > max(8, len(sample) // 100)
+
+    def _needs_exact_byte_refetch(self, url, body, content_type=''):
+        """
+        Detect captured resources whose bytes were altered by the browser bridge.
+
+        Some opaque assets arrive through `response.body()` with UTF-8 replacement
+        characters already injected. When that happens we refetch the exact bytes
+        through the requests session before writing the file to disk.
+        """
+        if not self.session or not body or b'\xef\xbf\xbd' not in body:
+            return False
+
+        parsed = urlparse(url)
+        ext = os.path.splitext(parsed.path)[1].lower()
+        text_extensions = {
+            '.css', '.csv', '.htm', '.html', '.js', '.json', '.map', '.mjs',
+            '.svg', '.txt', '.webmanifest', '.xml', '.xhtml',
+        }
+
+        if ext in text_extensions:
+            return False
+
+        if ext:
+            return True
+
+        content_type = (content_type or '').lower().split(';')[0].strip()
+        binary_markers = (
+            'image/', 'font/', 'audio/', 'video/', 'application/wasm',
+            'application/octet-stream', 'application/pdf',
+        )
+        if any(marker in content_type for marker in binary_markers):
+            return True
+
+        return self._looks_binary_like(body)
+
+    def _refetch_exact_bytes(self, url):
+        """Refetch a resource with requests to preserve exact bytes on disk."""
+        if not self.session:
+            return None
+
+        try:
+            response = self.session.get(url, timeout=RESOURCE_TIMEOUT, verify=False)
+        except Exception as exc:
+            self.failed_resources.append((url, f'exact-byte refetch error: {str(exc)[:50]}'))
+            return None
+
+        if response.status_code != 200:
+            self.failed_resources.append((url, f'exact-byte refetch HTTP {response.status_code}'))
+            return None
+
+        from . import MAX_RESOURCE_SIZE
+        if len(response.content) > MAX_RESOURCE_SIZE:
+            self.ignored_resources.append((url, f'size > {MAX_RESOURCE_SIZE/1024/1024:.0f}MB'))
+            return None
+
+        content_type = response.headers.get('content-type', '')
+        if not self._validate_content_type(url, content_type, response.content):
+            self.failed_resources.append((url, 'content-type mismatch after exact-byte refetch'))
+            return None
+
+        return {
+            'body': response.content,
+            'content_type': content_type,
+        }
+
+    def _should_refetch_original_image_variant(self, url, content_type=''):
+        """
+        Prefer a deterministic HTTP fallback when the browser negotiated a
+        different raster format than the one encoded in the original URL.
+        """
+        if not self.session:
+            return False
+
+        url_ext = self._normalize_extension(os.path.splitext(urlparse(url).path)[1])
+        if url_ext not in {'.gif', '.jpg', '.png', '.webp'}:
+            return False
+
+        mime = (content_type or '').split(';')[0].strip().lower()
+        if not mime.startswith('image/'):
+            return False
+
+        captured_ext = self._normalize_extension(self._extension_from_content_type(content_type))
+        return bool(captured_ext and captured_ext != url_ext)
+
+    def _refetch_original_image_variant(self, url):
+        """Refetch negotiated raster images with an Accept header matching the URL."""
+        if not self.session:
+            return None
+
+        url_ext = self._normalize_extension(os.path.splitext(urlparse(url).path)[1])
+        accept_by_ext = {
+            '.gif': 'image/gif,image/*;q=0.9,*/*;q=0.8',
+            '.jpg': 'image/jpeg,image/*;q=0.9,*/*;q=0.8',
+            '.png': 'image/png,image/*;q=0.9,*/*;q=0.8',
+            '.webp': 'image/webp,image/*;q=0.9,*/*;q=0.8',
+        }
+        accept = accept_by_ext.get(url_ext)
+        if not accept:
+            return None
+
+        try:
+            response = self.session.get(
+                url,
+                timeout=RESOURCE_TIMEOUT,
+                verify=False,
+                headers={'Accept': accept},
+            )
+        except Exception as exc:
+            self.failed_resources.append((url, f'original-image refetch error: {str(exc)[:50]}'))
+            return None
+
+        if response.status_code != 200:
+            self.failed_resources.append((url, f'original-image refetch HTTP {response.status_code}'))
+            return None
+
+        content_type = response.headers.get('content-type', '')
+        if not self._validate_content_type(url, content_type, response.content):
+            self.failed_resources.append((url, 'content-type mismatch after original-image refetch'))
+            return None
+
+        refreshed_ext = self._normalize_extension(self._extension_from_content_type(content_type))
+        if refreshed_ext and refreshed_ext != url_ext:
+            return None
+
+        return {
+            'body': response.content,
+            'content_type': content_type,
+        }
+
+    def _prepare_captured_resource_for_save(self, url, resource_data):
+        """Normalize captured resources before persisting them to disk."""
+        if not resource_data:
+            return None
+
+        body = resource_data.get('body') or b''
+        content_type = resource_data.get('content_type', '')
+        if not self._needs_exact_byte_refetch(url, body, content_type):
+            return resource_data
+
+        refreshed = self._refetch_exact_bytes(url)
+        if not refreshed:
+            return resource_data
+
+        if refreshed['body'] != body:
+            resource_data['body'] = refreshed['body']
+            resource_data['content_type'] = refreshed.get('content_type', content_type)
+            self.log(f"   Refetch exato de bytes: {url[:100]}")
+            body = resource_data['body']
+            content_type = resource_data['content_type']
+
+        if self._should_refetch_original_image_variant(url, content_type):
+            refreshed = self._refetch_original_image_variant(url)
+            if refreshed and refreshed['body'] != body:
+                resource_data['body'] = refreshed['body']
+                resource_data['content_type'] = refreshed.get('content_type', content_type)
+                self.log(f"   Refetch da variante original da imagem: {url[:100]}")
+
+        return resource_data
 
     def _download_fallback(self, url):
         """
@@ -641,7 +921,7 @@ class NetworkRecorder:
 
         # Check network captures
         if abs_url in self.network_resources:
-            res = self.network_resources[abs_url]
+            res = self._prepare_captured_resource_for_save(abs_url, self.network_resources[abs_url])
             return self._save_resource(abs_url, res['body'], res.get('content_type', ''))
 
         # Fallback download
@@ -657,12 +937,15 @@ class NetworkRecorder:
         saved_count = 0
         for url, resource_data in self.network_resources.items():
             if url not in self.resource_cache:
+                resource_data = self._prepare_captured_resource_for_save(url, resource_data)
                 local_path = self._save_resource(url, resource_data['body'], resource_data.get('content_type', ''))
                 if local_path:
                     saved_count += 1
 
         if saved_count > 0:
             self.log(f"   {saved_count} recursos salvos em disco")
+
+        self._normalize_negotiated_raster_images()
 
         # NOVO: pós-processamento de .m3u8 para garantir todos os chunks/variantes
         self.postprocess_m3u8_files()
@@ -679,18 +962,61 @@ class NetworkRecorder:
         """
         if not urls:
             return
+
+        ignored_urls = {url for url, _reason in self.ignored_resources}
+        failed_urls = {url for url, _reason in self.failed_resources}
+        seen_urls = set()
         downloaded = 0
+
         for url in urls:
             if not url:
                 continue
             normalized_url = urljoin(self.base_url.rstrip('/') + '/', url)
+            if normalized_url in seen_urls:
+                continue
+            seen_urls.add(normalized_url)
+
             if normalized_url in self.resource_cache:
                 continue
+            if normalized_url in ignored_urls or normalized_url in failed_urls:
+                continue
+
             local_path = self._download_fallback(normalized_url)
             if local_path:
                 downloaded += 1
         if downloaded:
             self.log(f"   {downloaded} recurso(s) baixados via fallback")
+
+    def _normalize_negotiated_raster_images(self):
+        """
+        Replace negotiated raster variants whose saved extension no longer
+        matches the explicit raster extension encoded in the original URL.
+        """
+        normalized_count = 0
+        for url, local_path in list(self.resource_cache.items()):
+            url_ext = self._normalize_extension(os.path.splitext(urlparse(url).path)[1])
+            local_ext = self._normalize_extension(os.path.splitext(local_path)[1])
+
+            if url_ext not in {'.gif', '.jpg', '.png', '.webp'}:
+                continue
+            if not local_ext or local_ext == url_ext:
+                continue
+
+            refreshed = self._refetch_original_image_variant(url)
+            if not refreshed:
+                continue
+
+            new_path = self._save_resource(
+                url,
+                refreshed['body'],
+                refreshed.get('content_type', ''),
+                overwrite=True,
+            )
+            if new_path:
+                normalized_count += 1
+
+        if normalized_count:
+            self.log(f"   {normalized_count} imagem(ns) raster normalizada(s) para o formato original")
 
     def get_resource_map(self):
         """Return the resource_map for URL rewriting"""

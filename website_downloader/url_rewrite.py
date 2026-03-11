@@ -51,7 +51,7 @@ class URLRewriter:
         JavaScript files are handled exclusively by the Fetch Interceptor at runtime
         to prevent syntax corruption from blind string replacement in minified JS.
         """
-        self.log("🔄 Aplicando substituição de URLs em arquivos CSS...")
+        self.log("Aplicando substituição de URLs em arquivos CSS...")
 
         resource_map = self.network.get_resource_map()
         if not resource_map:
@@ -134,7 +134,7 @@ class URLRewriter:
 
     def process_json_files(self):
         """Rewrite URLs inside JSON and webmanifest files using proper JSON parsing."""
-        self.log("🔄 Processando arquivos JSON/manifest...")
+        self.log("Processando arquivos JSON/manifest...")
 
         resource_map = self.network.get_resource_map()
         if not resource_map:
@@ -273,14 +273,14 @@ class URLRewriter:
         strings. Stripping those inline fragments corrupts the JavaScript, so
         this cleanup is intentionally limited to real EOF comments only.
         """
-        self.log("🗺️ Removendo sourcemaps...")
+        self.log("Removendo sourcemaps...")
         assets_dir = os.path.join(self.output_dir, 'assets')
         cleaned = 0
 
         if os.path.exists(assets_dir):
             for root, dirs, files in os.walk(assets_dir):
                 for filename in files:
-                    if filename.endswith(('.js', '.css')):
+                    if filename.endswith(('.js', '.mjs', '.css')):
                         filepath = os.path.join(root, filename)
                         try:
                             with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
@@ -292,7 +292,7 @@ class URLRewriter:
                             # Remove only true trailing sourcemap comments at EOF.
                             while new_content != previous_content:
                                 previous_content = new_content
-                                if filename.endswith('.js'):
+                                if filename.endswith(('.js', '.mjs')):
                                     new_content = re.sub(
                                         r'(?:\r?\n)?//# sourceMappingURL=[^\r\n]*\s*\Z',
                                         '',

@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 # MIME types para formatos especiais
 MIME_TYPES = {
+    '.avif': 'image/avif',
     '.wasm': 'application/wasm',
     '.glb': 'model/gltf-binary',
     '.gltf': 'model/gltf+json',

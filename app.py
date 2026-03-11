@@ -6,7 +6,6 @@ import queue
 import threading
 import time
 from downloader import WebsiteDownloader, zip_directory, get_site_name
-from website_downloader.clean import clean_site
 
 app = Flask(__name__)
 
@@ -114,13 +113,6 @@ def process_download(session_id, url):
             download_results[session_id] = {'status': 'error', 'error': 'Failed to download site'}
             return
 
-        # FASE 4: Clean site (create raw/ and clean/ versions)
-        q.put("Otimizando para consumo por IA...")
-        try:
-            clean_site(download_dir, log_callback)
-        except Exception as e:
-            q.put(f"Aviso: Falha na limpeza (continuando): {str(e)}")
-
         # Generate filename from site name
         site_name = get_site_name(url)
         zip_filename = f"{site_name}.zip"
@@ -131,7 +123,7 @@ def process_download(session_id, url):
         # Cleanup raw files
         shutil.rmtree(download_dir)
         
-        q.put("🎉 Download pronto!")
+        q.put("Download pronto!")
         download_results[session_id] = {
             'status': 'complete',
             'zip_path': zip_path,
