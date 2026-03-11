@@ -15,6 +15,7 @@ import webbrowser
 import os
 import sys
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
 
 # MIME types para formatos especiais
 MIME_TYPES = {
@@ -44,6 +45,69 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         normalized = request_path if request_path.startswith('/') else f'/{request_path}'
         return f'/assets{normalized}'
 
+    def _candidate_request_paths(self, request_path):
+        normalized = request_path if request_path.startswith('/') else f'/{request_path}'
+        candidates = [normalized]
+
+        normalized_path = self.translate_path(normalized)
+        if os.path.isdir(normalized_path):
+            candidates.append(normalized.rstrip('/') + '/index.html')
+
+        if normalized.endswith('/'):
+            candidates.append(normalized + 'index.html')
+
+        asset_alias = self._asset_alias_path(normalized)
+        if asset_alias:
+            candidates.append(asset_alias)
+            alias_path = self.translate_path(asset_alias)
+            if os.path.isdir(alias_path):
+                candidates.append(asset_alias.rstrip('/') + '/index.html')
+            if asset_alias.endswith('/'):
+                candidates.append(asset_alias + 'index.html')
+
+        # Preserve order but drop duplicates.
+        return list(dict.fromkeys(candidates))
+
+    def _next_image_source_path(self, request_path):
+        parsed = urlparse(request_path)
+        if not parsed.path.startswith('/_next/image'):
+            return None
+
+        source = parse_qs(parsed.query).get('url', [None])[0]
+        if not source:
+            return None
+
+        source = unquote(source)
+        source_parsed = urlparse(source)
+        if source_parsed.scheme or source_parsed.netloc:
+            source = source_parsed.path
+
+        if not source.startswith('/'):
+            source = '/' + source.lstrip('/')
+
+        return source
+
+    def _resolve_request_target(self, request_path):
+        parsed = urlparse(request_path)
+        clean_path = parsed.path or '/'
+
+        next_image_source = self._next_image_source_path(request_path)
+        if next_image_source:
+            clean_path = next_image_source
+
+        fallback_candidate = None
+        for candidate in self._candidate_request_paths(clean_path):
+            candidate_path = self.translate_path(candidate)
+            if os.path.isfile(candidate_path):
+                return candidate, candidate_path
+            if candidate.startswith('/assets/'):
+                fallback_candidate = (candidate, candidate_path)
+
+        if fallback_candidate:
+            return fallback_candidate
+
+        return clean_path, self.translate_path(clean_path)
+
     def _send_empty(self, status=204, content_type='application/json', body=b''):
         self.send_response(status)
         self.send_header('Content-Type', content_type)
@@ -66,16 +130,8 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self._send_empty()
             return
 
-        resolved_request_path = self.path
-        path = self.translate_path(resolved_request_path)
+        resolved_request_path, path = self._resolve_request_target(self.path)
         if not os.path.isfile(path):
-            asset_alias = self._asset_alias_path(resolved_request_path)
-            if asset_alias:
-                alias_path = self.translate_path(asset_alias)
-                if os.path.isfile(alias_path):
-                    resolved_request_path = asset_alias
-                    path = alias_path
-
             filename = os.path.basename(path)
             directory = os.path.dirname(path)
             if '.' in filename and os.path.isdir(directory):
@@ -90,7 +146,10 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 if len(candidates) == 1:
                     resolved_request_path = os.path.join(os.path.dirname(resolved_request_path), candidates[0])
         self.path = resolved_request_path
-        super().do_GET()
+        try:
+            super().do_GET()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def do_OPTIONS(self):
         self._send_empty()

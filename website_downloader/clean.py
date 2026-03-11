@@ -57,6 +57,42 @@ class SiteCleaner:
             'total_bytes_saved': 0,
         }
 
+    def _site_size_bytes(self):
+        total = 0
+        for path in self.site_dir.rglob('*'):
+            if path.is_file():
+                try:
+                    total += path.stat().st_size
+                except OSError:
+                    continue
+        return total
+
+    def _should_skip_clean_copy(self):
+        clean_mode = os.getenv('DM_CLEAN_MODE', 'full').strip().lower()
+        if clean_mode == 'raw-only':
+            self.log("   Modo raw-only ativo: versão clean será pulada")
+            return True
+
+        size_limit_mb = os.getenv('DM_CLEAN_MAX_SIZE_MB', '').strip()
+        if not size_limit_mb:
+            return False
+
+        try:
+            size_limit_bytes = int(float(size_limit_mb) * 1024 * 1024)
+        except ValueError:
+            self.log(f"   Aviso: DM_CLEAN_MAX_SIZE_MB inválido ({size_limit_mb}), ignorando limite")
+            return False
+
+        current_size = self._site_size_bytes()
+        if current_size >= size_limit_bytes:
+            self.log(
+                f"   Site com {current_size / (1024 * 1024):.1f} MB excede limite de "
+                f"{size_limit_mb} MB: versão clean será pulada"
+            )
+            return True
+
+        return False
+
     def process(self):
         """
         Produce two versions:
@@ -73,17 +109,20 @@ class SiteCleaner:
             shutil.rmtree(raw_dir)
         shutil.copytree(self.site_dir, raw_dir, ignore=shutil.ignore_patterns('raw', 'clean'))
 
-        self.log("   Criando versão clean (otimizada para IA)...")
+        skip_clean_copy = self._should_skip_clean_copy()
         if clean_dir.exists():
             shutil.rmtree(clean_dir)
-        shutil.copytree(self.site_dir, clean_dir, ignore=shutil.ignore_patterns('raw', 'clean'))
 
-        self._clean_directory(clean_dir)
+        if not skip_clean_copy:
+            self.log("   Criando versão clean (otimizada para IA)...")
+            shutil.copytree(self.site_dir, clean_dir, ignore=shutil.ignore_patterns('raw', 'clean'))
+            self._clean_directory(clean_dir)
 
         serve_template = Path(__file__).parent.parent / 'templates' / 'serve_template.py'
         if serve_template.exists():
             shutil.copy(serve_template, raw_dir / 'serve.py')
-            shutil.copy(serve_template, clean_dir / 'serve.py')
+            if not skip_clean_copy:
+                shutil.copy(serve_template, clean_dir / 'serve.py')
 
         for item in self.site_dir.iterdir():
             if item.name not in ['raw', 'clean', 'serve.py']:

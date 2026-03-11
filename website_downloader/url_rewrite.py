@@ -267,7 +267,7 @@ class URLRewriter:
 
     def remove_sourcemaps(self):
         """
-        Remove only trailing sourceMappingURL comments from JS files.
+        Remove only trailing sourceMappingURL comments from JS/CSS files.
 
         Some minified bundles generate CSS/source-map comments inside runtime
         strings. Stripping those inline fragments corrupts the JavaScript, so
@@ -280,7 +280,7 @@ class URLRewriter:
         if os.path.exists(assets_dir):
             for root, dirs, files in os.walk(assets_dir):
                 for filename in files:
-                    if filename.endswith('.js'):
+                    if filename.endswith(('.js', '.css')):
                         filepath = os.path.join(root, filename)
                         try:
                             with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
@@ -292,11 +292,12 @@ class URLRewriter:
                             # Remove only true trailing sourcemap comments at EOF.
                             while new_content != previous_content:
                                 previous_content = new_content
-                                new_content = re.sub(
-                                    r'(?:\r?\n)?//# sourceMappingURL=[^\r\n]*\s*\Z',
-                                    '',
-                                    new_content,
-                                )
+                                if filename.endswith('.js'):
+                                    new_content = re.sub(
+                                        r'(?:\r?\n)?//# sourceMappingURL=[^\r\n]*\s*\Z',
+                                        '',
+                                        new_content,
+                                    )
                                 new_content = re.sub(
                                     r'/\*# sourceMappingURL=.*?\*/\s*\Z',
                                     '',
@@ -312,4 +313,4 @@ class URLRewriter:
                             pass
 
         if cleaned > 0:
-            self.log(f"   {cleaned} arquivos JS limpos")
+            self.log(f"   {cleaned} arquivos JS/CSS limpos")

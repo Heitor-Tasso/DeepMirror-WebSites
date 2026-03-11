@@ -16,6 +16,24 @@ from pathlib import Path
 
 
 def main():
+    root_dir = Path(__file__).parent
+    raw_dir = root_dir / "raw"
+    clean_dir = root_dir / "clean"
+    available = []
+    if raw_dir.is_dir():
+        available.append(("raw", raw_dir))
+    if clean_dir.is_dir():
+        available.append(("clean", clean_dir))
+
+    if len(available) == 1:
+        folder = available[0][0]
+        print(f"Usando automaticamente a única versão disponível: {folder.upper()}")
+    elif len(available) == 0:
+        print("Erro: nenhuma versão raw/clean encontrada ao lado deste serve.py")
+        sys.exit(1)
+    else:
+        folder = None
+        
     print("=" * 60)
     print("DeepMirror WebSites - Seletor de Versão")
     print("=" * 60)
@@ -24,20 +42,25 @@ def main():
     print("2. CLEAN - Versão otimizada para IA (sem canvas/scripts)")
     print("\\n" + "=" * 60)
 
-    while True:
-        choice = input("\\nEscolha (1/2): ").strip()
-
-        if choice == "1":
-            folder = "raw"
-            break
-        elif choice == "2":
-            folder = "clean"
-            break
+    if folder is None:
+        if not sys.stdin.isatty():
+            folder = "raw" if raw_dir.is_dir() else "clean"
+            print(f"\\nEntrada não interativa detectada. Usando {folder.upper()}.")
         else:
-            print("Opção inválida. Digite 1 ou 2.")
+            while True:
+                choice = input("\\nEscolha (1/2): ").strip()
+
+                if choice == "1":
+                    folder = "raw"
+                    break
+                elif choice == "2":
+                    folder = "clean"
+                    break
+                else:
+                    print("Opção inválida. Digite 1 ou 2.")
 
     # Get path to serve.py in selected folder
-    serve_path = Path(__file__).parent / folder / "serve.py"
+    serve_path = root_dir / folder / "serve.py"
 
     if not serve_path.exists():
         print(f"\\nErro: Arquivo {serve_path} não encontrado!")

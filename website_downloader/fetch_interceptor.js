@@ -184,9 +184,27 @@
         }
     }
 
-    function hasExistingAsset(tagName, attrName, url) {
-        const comparableTarget = toComparableUrl(url);
-        if (!comparableTarget) return false;
+    function comparableCandidates(urls) {
+        const candidates = new Set();
+
+        for (const url of urls) {
+            if (!url) continue;
+            const comparable = toComparableUrl(url);
+            if (comparable) candidates.add(comparable);
+
+            const localPath = getLocalPath(url, window.location.href);
+            const comparableLocal = toComparableUrl(localPath);
+            if (comparableLocal) candidates.add(comparableLocal);
+        }
+
+        candidates.delete('');
+        return candidates;
+    }
+
+    function hasExistingAsset(tagName, attrName, urls) {
+        const targetUrls = Array.isArray(urls) ? urls : [urls];
+        const comparableTargets = comparableCandidates(targetUrls);
+        if (!comparableTargets.size) return false;
 
         const elements = tagName === 'script'
             ? Array.from(document.scripts || [])
@@ -194,7 +212,16 @@
 
         return elements.some((element) => {
             const currentValue = element.getAttribute(attrName) || element[attrName] || '';
-            return currentValue && toComparableUrl(currentValue) === comparableTarget;
+            if (!currentValue) return false;
+
+            const currentComparable = toComparableUrl(currentValue);
+            if (currentComparable && comparableTargets.has(currentComparable)) {
+                return true;
+            }
+
+            const currentLocalPath = getLocalPath(currentValue, window.location.href);
+            const currentComparableLocal = toComparableUrl(currentLocalPath);
+            return currentComparableLocal && comparableTargets.has(currentComparableLocal);
         });
     }
 
@@ -231,7 +258,7 @@
 
             const localPath = getLocalPath(originalSrc, window.location.href);
             const targetSrc = localPath || originalSrc;
-            if (hasExistingAsset('script', 'src', targetSrc)) {
+            if (hasExistingAsset('script', 'src', [originalSrc, targetSrc])) {
                 return neutralizeDuplicateNode(node, 'script', targetSrc);
             }
 
@@ -260,7 +287,7 @@
 
             const localPath = getLocalPath(originalHref, window.location.href);
             const targetHref = localPath || originalHref;
-            if (hasExistingAsset('link', 'href', targetHref)) {
+            if (hasExistingAsset('link', 'href', [originalHref, targetHref])) {
                 return neutralizeDuplicateNode(node, 'link', targetHref);
             }
 

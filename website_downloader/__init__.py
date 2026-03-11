@@ -1,10 +1,14 @@
 """
 DeepMirror-WebSites - Configurações e Constantes
 """
+import os
 
 # Timeouts
-BROWSER_TIMEOUT = 60000  # 60s para page.goto()
-RESOURCE_TIMEOUT = 15  # 15s por recurso individual
+BROWSER_TIMEOUT = int(os.getenv('DM_BROWSER_TIMEOUT_MS', '60000'))  # 60s para page.goto()
+RESOURCE_TIMEOUT = int(os.getenv('DM_RESOURCE_TIMEOUT_S', '15'))  # 15s por recurso individual
+NETWORK_IDLE_TIMEOUT = int(os.getenv('DM_NETWORK_IDLE_TIMEOUT_MS', '30000'))  # 30s esperando rede
+NETWORK_IDLE_SILENCE = int(os.getenv('DM_NETWORK_IDLE_SILENCE_MS', '10000'))  # 10s de silêncio
+CSS_INJECTION_TIMEOUT = int(os.getenv('DM_CSS_INJECTION_TIMEOUT_MS', '10000'))  # 10s para CSS-in-JS
 EXTRA_WAIT_MIN = 5000  # Mínimo 5s após carregamento
 EXTRA_WAIT_MAX = 8000  # Máximo 8s após carregamento
 INTERACTION_WAIT = 2000  # 2s entre interações simuladas

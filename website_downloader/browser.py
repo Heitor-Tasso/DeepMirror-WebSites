@@ -5,6 +5,7 @@ import html
 from playwright.sync_api import sync_playwright
 from . import (
     BROWSER_TIMEOUT, BROWSER_ARGS, USER_AGENT,
+    NETWORK_IDLE_TIMEOUT, NETWORK_IDLE_SILENCE, CSS_INJECTION_TIMEOUT,
     MAX_SCROLL_ITERATIONS, INTERACTION_WAIT
 )
 
@@ -446,13 +447,14 @@ class BrowserController:
         except Exception as e:
             self.log(f"Erro ao interagir com canvas: {e}")
 
-    def wait_for_css_injection(self, timeout=10000):
+    def wait_for_css_injection(self, timeout=None):
         """
         Wait for CSS-in-JS libraries (styled-components, emotion, etc.) to inject styles.
 
         Next.js and modern SPAs use CSS-in-JS that injects <style> tags dynamically.
         We wait until we see substantive <style> tags in the DOM.
         """
+        timeout = CSS_INJECTION_TIMEOUT if timeout is None else timeout
         self.log("💅 Aguardando injeção de CSS-in-JS...")
 
         try:
@@ -601,15 +603,17 @@ class BrowserController:
         except Exception as e:
             self.log(f"   Erro ao forçar imports dinâmicos: {e}")
 
-    def wait_for_network_idle(self, timeout=30000, idle_time=10000):
+    def wait_for_network_idle(self, timeout=None, idle_time=None):
         """
         Wait for network activity to settle intelligently.
         Monitors network requests and waits for idle_time ms of silence.
 
         Args:
-            timeout: Maximum time to wait (default 30s)
-            idle_time: Time of silence to consider network idle (default 10s)
+            timeout: Maximum time to wait
+            idle_time: Time of silence to consider network idle
         """
+        timeout = NETWORK_IDLE_TIMEOUT if timeout is None else timeout
+        idle_time = NETWORK_IDLE_SILENCE if idle_time is None else idle_time
         self.log("Aguardando recursos adicionais (monitorando rede)...")
 
         import time
@@ -692,41 +696,75 @@ class BrowserController:
 
     def collect_dynamic_asset_urls(self):
         """
-        Coleta todas as URLs de assets presentes no DOM (css, js, img, video, audio, source, object, iframe, preload, srcset).
+        Coleta URLs relevantes presentes no DOM para fallback de download.
+
+        Inclui assets clássicos e também páginas/support files same-origin que
+        frameworks modernos requisitam em runtime (manifest, browserconfig,
+        páginas de rotas top-level usadas por App Router/prefetch).
         """
         try:
             urls = self.page.evaluate("""
                 () => {
                     const urls = new Set();
+                    const extensionPattern = /\\.[a-z0-9]{1,8}$/i;
+
+                    const addIfTruthy = (value) => {
+                        if (value) urls.add(value);
+                    };
+
+                    const normalizeSameOriginTopLevelPage = (value) => {
+                        if (!value) return null;
+                        try {
+                            const url = new URL(value, window.location.href);
+                            if (!['http:', 'https:'].includes(url.protocol)) return null;
+                            if (url.origin !== window.location.origin) return null;
+                            if (url.hash && url.pathname === window.location.pathname && !url.search) return null;
+                            if (extensionPattern.test(url.pathname)) return null;
+
+                            const depth = url.pathname.split('/').filter(Boolean).length;
+                            if (depth > 1) return null;
+
+                            return url.href;
+                        } catch (e) {
+                            return null;
+                        }
+                    };
+
                     // Stylesheets
-                    document.querySelectorAll('link[rel="stylesheet"]').forEach(l => l.href && urls.add(l.href));
+                    document.querySelectorAll('link[rel="stylesheet"]').forEach(l => addIfTruthy(l.href));
+                    // Manifest / icons
+                    document.querySelectorAll('link[rel="manifest"], link[rel*="icon"]').forEach(l => addIfTruthy(l.href));
                     // Scripts
-                    document.querySelectorAll('script[src]').forEach(s => s.src && urls.add(s.src));
+                    document.querySelectorAll('script[src]').forEach(s => addIfTruthy(s.src));
                     // Imagens
-                    document.querySelectorAll('img[src]').forEach(i => i.src && urls.add(i.src));
+                    document.querySelectorAll('img[src]').forEach(i => addIfTruthy(i.src));
                     // Vídeos e Áudios
-                    document.querySelectorAll('video[src], audio[src]').forEach(m => m.src && urls.add(m.src));
+                    document.querySelectorAll('video[src], audio[src]').forEach(m => addIfTruthy(m.src));
                     // <source src>
-                    document.querySelectorAll('source[src]').forEach(s => s.src && urls.add(s.src));
+                    document.querySelectorAll('source[src]').forEach(s => addIfTruthy(s.src));
                     // <object data>
-                    document.querySelectorAll('object[data]').forEach(o => o.data && urls.add(o.data));
+                    document.querySelectorAll('object[data]').forEach(o => addIfTruthy(o.data));
                     // <iframe src>
-                    document.querySelectorAll('iframe[src]').forEach(f => f.src && urls.add(f.src));
+                    document.querySelectorAll('iframe[src]').forEach(f => addIfTruthy(f.src));
                     // <link rel="preload">
-                    document.querySelectorAll('link[rel="preload"]').forEach(l => l.href && urls.add(l.href));
+                    document.querySelectorAll('link[rel="preload"], link[rel="modulepreload"], link[rel="prefetch"]').forEach(l => addIfTruthy(l.href));
+                    // Browser config
+                    document.querySelectorAll('meta[name="msapplication-config"][content]').forEach(m => addIfTruthy(m.content));
+                    // Same-origin top-level pages often requested later as RSC/prefetch payloads
+                    document.querySelectorAll('a[href]').forEach(a => addIfTruthy(normalizeSameOriginTopLevelPage(a.getAttribute('href') || a.href)));
                     // <link rel="preload" as="image"> (srcset)
                     document.querySelectorAll('img[srcset], source[srcset]').forEach(el => {
                         if (el.srcset) {
                             el.srcset.split(',').forEach(src => {
                                 const url = src.trim().split(' ')[0];
-                                if (url) urls.add(url);
+                                addIfTruthy(url);
                             });
                         }
                     });
                     return Array.from(urls);
                 }
             """)
-            self.log(f"   {len(urls)} asset(s) presentes no DOM para fallback")
+            self.log(f"   {len(urls)} recurso(s) presentes no DOM para fallback")
             return urls
         except Exception as e:
             self.log(f"   Erro ao coletar assets do DOM: {e}")

@@ -7,7 +7,7 @@ import re
 import json
 from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup, NavigableString
-from . import TRACKING_SCRIPTS
+from . import TRACKING_SCRIPTS, RESOURCE_TIMEOUT
 from .url_rewrite import URLRewriter, rewrite_css_urls
 
 
@@ -44,6 +44,7 @@ class PostProcessor:
                 self._prune_runtime_only_nodes(soup)
             self._restore_empty_runtime_hosts(soup)
         self._restore_missing_original_support_nodes(soup)
+        self._restore_original_form_controls(soup)
         self._restore_original_inline_styles(soup)
         self._restore_original_svg_transforms(soup)
         self._restore_original_style_tags(soup)
@@ -345,6 +346,11 @@ class PostProcessor:
             'source',
             'template',
         }
+        element_id = str(element.get('id') or '').lower()
+        if element_id and descendant_count <= 25 and text_length <= 160:
+            if any(marker in element_id for marker in support_markers):
+                return True
+
         if classes and descendant_count <= 25 and text_length <= 160:
             if any(any(marker in cls.lower() for marker in support_markers) for cls in classes):
                 return True
@@ -414,6 +420,155 @@ class PostProcessor:
 
         if restored:
             self.log(f"   Restaurados {restored} nós-fonte do HTML original consumidos pelo runtime")
+
+    def _looks_runtime_enhanced_form_control(self, original_elem, current_elem):
+        """Detect form controls replaced by client-side UI wrappers in the live DOM."""
+        if original_elem is None or current_elem is None:
+            return False
+
+        if original_elem.name not in {'select', 'input', 'textarea'}:
+            return False
+
+        if current_elem.name != original_elem.name:
+            return False
+
+        original_hidden = original_elem.has_attr('hidden') or original_elem.get('type') == 'hidden'
+        current_hidden = current_elem.has_attr('hidden') or current_elem.get('type') == 'hidden'
+        if current_hidden and not original_hidden:
+            return True
+
+        if current_elem.has_attr('data-choice') and not original_elem.has_attr('data-choice'):
+            return True
+
+        if current_elem.get('tabindex') == '-1' and original_elem.get('tabindex') != '-1':
+            return True
+
+        for ancestor in current_elem.parents:
+            if not getattr(ancestor, 'name', None) or ancestor.name in {'form', 'body', 'html'}:
+                break
+
+            role = str(ancestor.get('role') or '').lower()
+            classes = set(self._normalized_classes(ancestor))
+            if role in {'listbox', 'combobox'}:
+                return True
+            if ancestor.get('aria-expanded') is not None and current_hidden:
+                return True
+            if 'choices' in classes or any(cls.startswith('choices__') for cls in classes):
+                return True
+
+        return False
+
+    def _find_runtime_form_wrapper(self, current_elem):
+        """Pick the outermost transient wrapper around a runtime-enhanced form control."""
+        target = current_elem
+        for ancestor in current_elem.parents:
+            if not getattr(ancestor, 'name', None) or ancestor.name in {'form', 'body', 'html'}:
+                break
+
+            role = str(ancestor.get('role') or '').lower()
+            classes = set(self._normalized_classes(ancestor))
+            if role in {'listbox', 'combobox'}:
+                target = ancestor
+                continue
+            if ancestor.get('aria-expanded') is not None and current_elem.has_attr('hidden'):
+                target = ancestor
+                continue
+            if 'choices' in classes or any(cls.startswith('choices__') for cls in classes):
+                target = ancestor
+
+        return target
+
+    def _match_current_form_control(self, original_elem, current_body, path_lookup, signature_lookup):
+        """Match original form controls even when runtime enhancers change classes/parents."""
+        matched = self._match_original_element(original_elem, path_lookup, signature_lookup)
+        if matched is not None:
+            return matched
+
+        stable_data_attrs = {
+            attr for attr in original_elem.attrs
+            if attr.startswith('data-') and attr not in {'data-choice', 'data-item', 'data-id', 'data-value'}
+        }
+        if stable_data_attrs:
+            candidates = []
+            for candidate in current_body.find_all(original_elem.name):
+                candidate_data_attrs = {
+                    attr for attr in candidate.attrs
+                    if attr.startswith('data-') and attr not in {'data-choice', 'data-item', 'data-id', 'data-value'}
+                }
+                if stable_data_attrs.issubset(candidate_data_attrs):
+                    candidates.append(candidate)
+            if len(candidates) == 1:
+                return candidates[0]
+
+        if original_elem.name == 'select':
+            original_options = [
+                (option.get('value', ''), option.get_text(' ', strip=True))
+                for option in original_elem.find_all('option')
+            ]
+            candidates = []
+            for candidate in current_body.find_all('select'):
+                candidate_options = [
+                    (option.get('value', ''), option.get_text(' ', strip=True))
+                    for option in candidate.find_all('option')
+                ]
+                if candidate_options == original_options:
+                    candidates.append(candidate)
+            if len(candidates) == 1:
+                return candidates[0]
+
+        return None
+
+    def _restore_original_form_controls(self, soup):
+        """
+        Restore original form controls when runtime UI libraries replace them in-place.
+
+        Libraries that enhance <select>/<input> often hide the original control and
+        inject interactive wrappers. Persisting that mutated DOM causes duplicate
+        initialization offline because the library boots again on top of an already
+        enhanced control.
+        """
+        original_soup = self._get_original_html_soup()
+        if not original_soup:
+            return
+
+        original_body = original_soup.find('body')
+        current_body = soup.find('body')
+        if not original_body or not current_body:
+            return
+
+        restored = 0
+        while True:
+            current_path_lookup, current_signature_lookup = self._build_original_element_lookups(soup)
+            changed = False
+
+            for original_elem in original_body.find_all(['select', 'input', 'textarea']):
+                current_elem = self._match_current_form_control(
+                    original_elem,
+                    current_body,
+                    current_path_lookup,
+                    current_signature_lookup,
+                )
+                if current_elem is None:
+                    continue
+                if not self._looks_runtime_enhanced_form_control(original_elem, current_elem):
+                    continue
+
+                clone_soup = BeautifulSoup(str(original_elem), 'html.parser')
+                clone = clone_soup.find(original_elem.name)
+                if clone is None:
+                    continue
+
+                replacement_target = self._find_runtime_form_wrapper(current_elem)
+                replacement_target.replace_with(clone)
+                restored += 1
+                changed = True
+                break
+
+            if not changed:
+                break
+
+        if restored:
+            self.log(f"   Restaurados {restored} controles de formulário ao estado original")
 
     def _normalized_classes(self, element):
         """Return a normalized list of CSS classes for element matching."""
@@ -998,7 +1153,7 @@ class PostProcessor:
 
             if not css_content:
                 try:
-                    response = self.network.session.get(abs_url, timeout=15, verify=False)
+                    response = self.network.session.get(abs_url, timeout=RESOURCE_TIMEOUT, verify=False)
                     if response.status_code == 200:
                         css_content = response.text
                 except Exception:

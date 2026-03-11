@@ -11,6 +11,9 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
   - `website_downloader/network.py`
   - `website_downloader/post_process.py`
   - `website_downloader/url_rewrite.py`
+  - `website_downloader/browser.py`
+  - `website_downloader/clean.py`
+  - `templates/serve_template.py`
 
 - **Melhorias implementadas**:
   - **Preservação de nomes reais de chunks/assets**: arquivos top-level passaram a ser salvos com o nome original quando não são endpoints com query/API, evitando 404 em imports dinâmicos offline.
@@ -29,11 +32,21 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
   - **Restauração de CSS crítico server-rendered**: blocos `<style>` do HTML original passam a ser reaproveitados quando o DOM hidratado contém placeholders vazios de CSS-in-JS.
   - **Materialização de SDKs externos pré-carregados**: `<link rel="preload">` e `<link rel="modulepreload">` que apontam para scripts externos já capturados passam a virar `<script src=...>` reais no HTML final quando o runtime original dependia dessa etapa para inicialização.
   - **Deduplicação segura de placeholders CSS-in-JS**: placeholders vazios gerados na hidratação deixam de coexistir com blocos restaurados, evitando duplicidade e competição entre estilos críticos.
+  - **Captura ampliada de recursos root-relative e páginas auxiliares**: assets presentes no DOM, ícones, manifests e links same-origin relevantes passaram a entrar no fallback de download com normalização absoluta, evitando `Invalid URL` em `/manifest.json`, `/browserconfig.xml`, `/cookies/` e endpoints semelhantes.
+  - **Resolução offline mais robusta no `serve.py`**: aliases root-relative agora conseguem encontrar arquivos equivalentes salvos em `assets/`, inclusive quando o arquivo final foi persistido com hash/sufixo, cobrindo casos como `manifest.json`, `sw.js`, rotas `/_next/image` e páginas `.../index.html`.
+  - **Deduplicação runtime entre URLs originais e locais**: o fetch interceptor passou a comparar tanto a URL remota quanto o path local reescrito antes de injetar `script`/`link`, reduzindo dupla inicialização offline em SPAs e storefronts.
+  - **Restauração de nós de suporte removidos pelo runtime**: o pós-processamento ficou mais tolerante a IDs estruturais (`*-list`, `*-filter`, `*-menu`, etc.), recuperando markup server-rendered consumido pela hidratação antes do replay offline.
+  - **Restauração de controles de formulário aprimorados em runtime**: selects/inputs encapsulados por widgets client-side passam a voltar ao markup original server-rendered quando o DOM salvo já estava no estado "enhanced", evitando dupla inicialização offline.
+  - **Timeouts configuráveis por ambiente**: `page.goto`, espera de rede ociosa, espera de CSS-in-JS e timeout de fallback HTTP agora podem ser ampliados sem patch adicional, útil para sites muito pesados.
+  - **Modo opcional `raw-only` no pipeline de limpeza**: a etapa de `clean` pode ser pulada por configuração explícita ou por limite de tamanho, evitando duplicação desnecessária em downloads muito grandes.
 
 - **Validação prática nesta etapa**:
   - `beda.imb.br`: imports dinâmicos e imagens de `/storage/...` passaram a carregar corretamente offline; etapa considerada fechada após validação manual.
   - `osmo.supply`: erros de JS corrompido e dupla inicialização de widgets foram eliminados; `data-radial-marquee-rotate` voltou a rodar e o `data-footer-logo-wrap` passou a zerar corretamente no fim da página offline; etapa considerada fechada após validação manual.
   - `pocketchangethe.world`: hydration do Next e CSS crítico voltaram ao HTML salvo; o popup de cookies recuperou o CSS runtime, a cena principal do hero voltou a montar offline e a página deixou de abrir branca, mas a paridade visual total ainda segue em investigação.
+  - `pocketchangethe.world`: validação offline desta rodada confirmou `200` para `sw.js`, `manifest.json`, rotas `cookies`/`privacy` com query `_rsc` e `/_next/image`; sem `404` nem `requestfailed` na navegação headless local.
+  - `palmer-dinnerware.com`: validação offline desta rodada removeu o `TypeError` ligado a `colorsList/typesList`; o log do processamento registrou restauração de 10 nós-fonte consumidos pelo runtime e a navegação local ficou sem `404` ou `requestfailed`, restando apenas warnings de GSAP target ausente.
+  - `landonorris.store`: validação desta rodada em `raw-only` eliminou os `404` de sourcemap e o warning `Trying to initialise Choices on element already initialised`; permaneceram apenas erros externos de `shop.app`/CSP e abort de mídia, fora do caminho principal de renderização offline.
 
 ### Fixed - Bug 2.0: Canva do site Landonorris Duplicado ✅
 

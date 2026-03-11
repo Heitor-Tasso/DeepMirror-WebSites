@@ -38,6 +38,7 @@ class NetworkRecorder:
             r'["\']((?:https?:)?//[^"\']+\.(?:css|js|mjs)(?:\?[^"\']*)?)["\']',
             r'["\']((?:\./|\.\./|/)?(?:_next/static/(?:css|chunks)|assets|static)/(?:[A-Za-z0-9@_./-]+)\.(?:css|js|mjs|png|jpe?g|svg|webp|avif|gif|woff2?|ttf|otf|eot|json|wasm))["\']',
             r'["\']((?:\./|\.\./)?[A-Za-z0-9][A-Za-z0-9_.-]*-[A-Za-z0-9_.-]+\.(?:css|js|mjs|png|jpe?g|svg|webp|avif|gif|woff2?|ttf|otf|eot|json|wasm))["\']',
+            r'["\']((?:/[A-Za-z0-9@_./-]+)\.(?:css|js|mjs|png|jpe?g|svg|webp|avif|gif|woff2?|ttf|otf|eot|json|webmanifest|wasm|ico|xml|txt)(?:\?[^"\']*)?)["\']',
         ]
 
         # Scan all saved JS files
@@ -67,7 +68,7 @@ class NetworkRecorder:
                         elif asset_ref.startswith('//'):
                             parsed_base = urlparse(url)
                             asset_url = f"{parsed_base.scheme}:{asset_ref}"
-                        elif asset_ref.startswith(('assets/', '_next/', 'static/')):
+                        elif asset_ref.startswith(('/', 'assets/', '_next/', 'static/')):
                             # Bundler manifests often store site-root asset paths without a
                             # leading slash (e.g. "assets/chunk.js"). Resolving those
                             # against the current JS file creates bogus ".../assets/assets/"
@@ -207,7 +208,7 @@ class NetworkRecorder:
                     continue
 
                 try:
-                    response = self.session.get(candidate, timeout=15, verify=False)
+                    response = self.session.get(candidate, timeout=RESOURCE_TIMEOUT, verify=False)
                 except Exception:
                     continue
 
@@ -560,11 +561,13 @@ class NetworkRecorder:
         APIs require dynamic headers (Auth tokens, CORS) that requests.get doesn't have.
         Attempting to download them results in 406/401 errors and pollutes logs.
         """
-        if url in self.resource_cache:
-            return self.resource_cache[url]
-
         if not url or url.startswith(('data:', 'blob:', '#')):
             return url
+
+        url = urljoin(self.base_url.rstrip('/') + '/', url)
+
+        if url in self.resource_cache:
+            return self.resource_cache[url]
 
         # CRITICAL: Block API endpoints - they need browser context (auth headers, cookies)
         # Attempting requests.get on APIs will ALWAYS fail with 406/401/CORS
@@ -678,13 +681,16 @@ class NetworkRecorder:
             return
         downloaded = 0
         for url in urls:
-            if not url or url in self.resource_cache:
+            if not url:
                 continue
-            local_path = self._download_fallback(url)
+            normalized_url = urljoin(self.base_url.rstrip('/') + '/', url)
+            if normalized_url in self.resource_cache:
+                continue
+            local_path = self._download_fallback(normalized_url)
             if local_path:
                 downloaded += 1
         if downloaded:
-            self.log(f"   {downloaded} stylesheet(s) baixados via fallback")
+            self.log(f"   {downloaded} recurso(s) baixados via fallback")
 
     def get_resource_map(self):
         """Return the resource_map for URL rewriting"""
