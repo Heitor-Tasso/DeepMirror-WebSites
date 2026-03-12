@@ -22,6 +22,14 @@
 - 🔐 **Integrity fix**: Remove atributos `integrity`/`crossorigin` que quebram offline
 - 🎯 **Basename rewriting**: Substitui URLs relativas em CSS inline (`url("file.svg")` → `url("/assets/path/file.svg")`)
 - 🌐 **URL decode**: Nomes de arquivo com `%2C`, `%20` decodificados corretamente
+- 🧠 **Baseline inteligente**: Detecta automaticamente se deve usar o HTML estático original ou o DOM hidratado capturado pelo Playwright
+- 🎠 **Runtime cleanup**: Remove artefatos de sliders/carrosséis (Swiper, Keen, Splide) que causam duplicação offline
+
+### Limpeza para IA
+- 📄 **HTML**: Remove comentários, meta tags de SEO/social e `data-*` vazios
+- 🎨 **CSS**: Remove comentários, normaliza indentação, sem minificação
+- ⚙️ **JS**: Remove comentários, preserva lógica — pula arquivos já minificados
+- 📦 **Saída dupla**: `raw/` (backup fiel) + `clean/` (otimizado para leitura por IA)
 
 ### Interface & Deploy
 - 🔄 **Interface real-time**: Logs de progresso via Server-Sent Events (SSE)
@@ -62,7 +70,14 @@ Manter portfólios de clientes acessíveis:
 git clone https://github.com/seu-usuario/DeepMirror-WebSites.git
 cd DeepMirror-WebSites
 
+# Criar configuração local
+cp .env.example .env
+
+# Instalar dependências travadas pelo uv.lock
 bash setup.sh
+
+# Subir a interface web
+uv run python app.py
 ```
 
 Acesse: `http://localhost:5001`
@@ -86,57 +101,58 @@ downloader.process()
 
 ```
 DeepMirror-WebSites/
-├── DEPLOY.md
-├── CHANGELOG.md
-├── Dockerfile
-├── FUTURE.md
-├── LOGS.md
-├── README.md
-├── SITES.md
-├── app.py
-├── build.sh
-├── downloader.py
-├── entrypoint.sh
-├── setup.sh
-├── static/
-│   ├── css/
-│   │   └── style.css
-│   └── js/
-│       └── main.js
+├── app.py                        # Flask app + SSE
+├── downloader.py                 # Fachada pública (WebsiteDownloader)
+├── website_downloader/
+│   ├── __init__.py               # Constantes e configurações centralizadas
+│   ├── browser.py                # BrowserController — Playwright, scroll, vídeos
+│   ├── network.py                # NetworkRecorder — interceptação e salvamento
+│   ├── url_rewrite.py            # URLRewriter — reescrita de URLs pós-download
+│   ├── fetch_interceptor.js      # Script injetado para redirecionar fetch/XHR
+│   ├── post_process/
+│   │   ├── core.py               # PostProcessor — orquestração / entry point
+│   │   ├── transformers.py       # Restauração de DOM/HTML original
+│   │   ├── processors.py         # Localização de assets e limpeza estrutural
+│   │   ├── injectors.py          # Import map, bootstrap runtime, fetch interceptor
+│   │   ├── baseline.py           # Seleção do melhor HTML base (SSR vs. DOM)
+│   │   └── runtime_cleanup.py    # Remoção de artefatos de sliders e carrosséis
+│   └── clean/
+│       ├── manager.py            # SiteCleaner — orquestração raw/clean
+│       ├── clean_html.py         # Limpeza de HTML para IA
+│       ├── clean_css.py          # Limpeza de CSS para IA
+│       └── clean_js.py           # Limpeza de JS para IA
 ├── templates/
 │   ├── index.html
 │   ├── serve_outside.py
 │   └── serve_template.py
-├── website_downloader/
-│   ├── __init__.py
-│   ├── browser.py
-│   ├── clean.py
-│   ├── network.py
-│   └── post_process.py
-├── downloads/*
-├── .dockerignore
-├── .gitignore
-├── .python-version
-├── uv.lock
-├── pyproject.toml
-├── Procfile
-├── render.yaml
-├── RAILWAY_DEPLOY.md
-└── requirements.txt
+├── static/
+│   ├── css/style.css
+│   └── js/main.js
+├── development/                  # Prompts, logs e changelog internos
+├── downloads/                    # Sites baixados (gerado em runtime)
+├── setup.sh / build.sh / Dockerfile
+└── pyproject.toml / uv.lock
 ```
+
+### Estrutura do `post_process`
+
+- `core.py`: mantém a classe `PostProcessor` e apenas orquestra a pipeline.
+- `transformers.py`: concentra matching entre DOM capturado e HTML original, restauração de nós e pruning SSR-safe.
+- `processors.py`: concentra reescrita/localização de URLs, assets, scripts, preloads e limpeza de tracking.
+- `injectors.py`: concentra import map, fetch interceptor, bootstraps Shopify e materialização de preloads externos.
 
 ### Fluxo de Captura
 
 ```mermaid
 graph LR
     A[URL] --> B[Playwright Launch]
-    B --> C[Page Load + Scroll]
+    B --> C[Page Load + Scroll + Vídeos]
     C --> D[WebGL Canvas Interactions]
     D --> E[Network Idle Wait]
-    E --> F[Save Captured Resources]
-    F --> G[Process HTML/CSS/JS]
-    G --> H[Inject Fetch Interceptor]
-    H --> I[Global URL Rewrite]
+    E --> F[NetworkRecorder: Save Assets]
+    F --> G[URLRewriter: Rewrite URLs]
+    G --> H[PostProcessor: HTML/DOM + Fetch Interceptor]
+    H --> I[SiteCleaner: raw/ + clean/]
     I --> J[ZIP Download]
 ```
 
@@ -144,27 +160,29 @@ graph LR
 
 ### Timeouts e Limites
 
-Editar `website_downloader/__init__.py`:
+Editar `.env`:
 
-```python
-BROWSER_TIMEOUT = 60000      # 60s para page.goto()
-RESOURCE_TIMEOUT = 15        # 15s por recurso
-MAX_RESOURCE_SIZE = 100 * 1024 * 1024  # 100MB por arquivo
-MAX_SCROLL_ITERATIONS = 20   # Máximo de scrolls
+```dotenv
+DM_BROWSER_TIMEOUT_MS=60000
+DM_RESOURCE_TIMEOUT_S=15
+DM_MAX_RESOURCE_SIZE_MB=100
+DM_MAX_SCROLL_ITERATIONS=20
+DM_CLEAN_MODE=full
 ```
 
 ### Domínios Ignorados
 
-Adicionar domínios de tracking em `SKIP_DOMAINS`:
+Sobrescrever `DM_SKIP_DOMAINS` no `.env`:
 
-```python
-SKIP_DOMAINS = [
-    'google-analytics.com',
-    'googletagmanager.com',
-    'facebook.com',
-    # ... adicionar mais
-]
+```dotenv
+DM_SKIP_DOMAINS=google-analytics.com,googletagmanager.com,facebook.com,seu-dominio.com
 ```
+
+### Dependências e Build
+
+- O projeto usa `pyproject.toml` como fonte única de dependências.
+- O lockfile `uv.lock` deve ser versionado para builds reproduzíveis.
+- `bash setup.sh` executa `uv sync --frozen` e instala o Chromium do Playwright no ambiente isolado.
 
 ## 📝 Notas Técnicas
 
@@ -205,7 +223,7 @@ Veja [DEPLOY.md](DEPLOY.md) para instruções de deploy em:
 
 ## 📄 Changelog
 
-Veja [CHANGELOG.md](CHANGELOG.md) para histórico detalhado de mudanças.
+Veja [CHANGELOG.md](development/CHANGELOG.md) para histórico detalhado de mudanças.
 
 ## 🔮 Roadmap
 

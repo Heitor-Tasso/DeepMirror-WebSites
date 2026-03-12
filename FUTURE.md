@@ -28,8 +28,6 @@
 **Descrição**: Hoje os Logs ficam só na interface web do Download, e se der erro fica difícil saber resolver.
 **Prioridade**: Alta
 
-
-
 ## 🤝 Contribuindo
 
 Para adicionar um item a este roadmap:

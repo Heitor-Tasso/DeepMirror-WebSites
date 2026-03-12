@@ -5,6 +5,7 @@ import os
 import shutil
 from pathlib import Path
 
+from .. import CLEAN_MAX_SIZE_MB, CLEAN_MAX_SIZE_MB_INVALID, CLEAN_MODE
 from .clean_css import clean_css_content
 from .clean_html import clean_html_content
 from .clean_js import clean_js_content
@@ -34,26 +35,25 @@ class SiteCleaner:
         return total
 
     def _should_skip_clean_copy(self):
-        clean_mode = os.getenv('DM_CLEAN_MODE', 'full').strip().lower()
-        if clean_mode == 'raw-only':
+        if CLEAN_MODE == 'raw-only':
             self.log("   Modo raw-only ativo: versão clean será pulada")
             return True
 
-        size_limit_mb = os.getenv('DM_CLEAN_MAX_SIZE_MB', '').strip()
-        if not size_limit_mb:
+        if CLEAN_MAX_SIZE_MB_INVALID:
+            self.log(
+                f"   Aviso: DM_CLEAN_MAX_SIZE_MB inválido ({CLEAN_MAX_SIZE_MB_INVALID}), ignorando limite"
+            )
             return False
 
-        try:
-            size_limit_bytes = int(float(size_limit_mb) * 1024 * 1024)
-        except ValueError:
-            self.log(f"   Aviso: DM_CLEAN_MAX_SIZE_MB inválido ({size_limit_mb}), ignorando limite")
+        if CLEAN_MAX_SIZE_MB is None:
             return False
 
+        size_limit_bytes = int(CLEAN_MAX_SIZE_MB * 1024 * 1024)
         current_size = self._site_size_bytes()
         if current_size >= size_limit_bytes:
             self.log(
                 f"   Site com {current_size / (1024 * 1024):.1f} MB excede limite de "
-                f"{size_limit_mb} MB: versão clean será pulada"
+                f"{CLEAN_MAX_SIZE_MB:g} MB: versão clean será pulada"
             )
             return True
 

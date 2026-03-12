@@ -10,6 +10,7 @@ wheels/
 .venv
 venv/
 env/
+.cache/
 
 # Downloads folder (temporary files)
 downloads/*

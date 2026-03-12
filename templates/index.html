@@ -14,6 +14,12 @@
     <div class="background-glow"></div>
 
     <div class="container">
+        <div class="panel-toolbar">
+            <form action="{{ url_for('logout') }}" method="post">
+                <button type="submit" class="logout-link">Sair</button>
+            </form>
+        </div>
+
         <div class="header-content">
             <div class="badge">AI DESIGNER</div>
             <h1>DeepMirror <span>WebSites</span></h1>

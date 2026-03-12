@@ -29,6 +29,14 @@ echo "- Cache limpo"
 
 echo ""
 
+if [ -f ".env" ]; then
+    set -a
+    . ./.env
+    set +a
+    echo "- Variáveis carregadas de .env"
+    echo ""
+fi
+
 if [ "$ENVIRONMENT" = "local" ]; then
     # Local development setup
     echo -e "${GREEN}Setup Local${NC}"
@@ -50,7 +58,7 @@ if [ "$ENVIRONMENT" = "local" ]; then
 
     # Sync dependencies with uv
     echo -e "${GREEN}Instalando dependências com uv...${NC}"
-    uv sync
+    uv sync --frozen
     echo "- Dependências instaladas"
 
     echo ""
@@ -75,20 +83,25 @@ else
     echo -e "${GREEN}Setup Docker/Deploy${NC}"
     echo "--------------------------------"
 
-    echo "Instalando dependências Python..."
-    pip install -r requirements.txt
+    if ! command -v uv &> /dev/null; then
+        echo -e "${RED}uv não encontrado no ambiente de build${NC}"
+        exit 1
+    fi
+
+    echo "Instalando dependências Python com uv..."
+    uv sync --frozen
     echo "- Dependências instaladas"
 
     echo ""
 
     echo "Instalando Playwright Chromium..."
-    playwright install chromium
+    uv run playwright install chromium
     echo "- Playwright Chromium instalado"
 
     echo ""
 
     echo "Tentando instalar dependências do sistema (pode falhar)..."
-    playwright install-deps chromium || echo " System deps install falhou (continuando)"
+    uv run playwright install-deps chromium || echo " System deps install falhou (continuando)"
 
     echo ""
     echo -e "${GREEN}Build completo!${NC}"

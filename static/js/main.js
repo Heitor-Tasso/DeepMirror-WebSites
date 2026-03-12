@@ -21,15 +21,21 @@ function startDownload() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: url })
     })
-    .then(response => response.json())
-    .then(data => {
-        if (data.error) {
-            showError(data.error);
-            addLog('' + data.error);
-            setLoading(false);
-            return;
+    .then(async response => {
+        const data = await response.json().catch(() => ({}));
+
+        if (response.status === 401) {
+            window.location.href = '/login';
+            throw new Error(data.error || 'Sessão expirada. Faça login novamente.');
         }
 
+        if (!response.ok) {
+            throw new Error(data.error || 'Erro ao iniciar o download');
+        }
+
+        return data;
+    })
+    .then(data => {
         currentSessionId = data.session_id;
         connectSSE(currentSessionId);
     })

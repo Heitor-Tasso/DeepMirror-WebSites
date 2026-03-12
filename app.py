@@ -1,4 +1,7 @@
-from flask import Flask, render_template, request, send_file, Response, jsonify
+from functools import wraps
+from hmac import compare_digest
+
+from flask import Flask, render_template, request, send_file, Response, jsonify, redirect, session, url_for
 import os
 import shutil
 import uuid
@@ -6,13 +9,58 @@ import queue
 import threading
 import time
 from downloader import WebsiteDownloader, zip_directory, get_site_name
+from website_downloader import (
+    APP_DEBUG,
+    APP_HOST,
+    APP_PORT,
+    APP_SECRET_KEY,
+    APP_THREADED,
+    DOWNLOAD_CLEANUP_DELAY_S,
+    DOWNLOAD_FOLDER,
+    LOGIN_PASSWORD,
+    LOGIN_USERNAME,
+    SESSION_CLEANUP_INTERVAL_S,
+    SESSION_MAX_AGE_S,
+    SSE_MESSAGE_TIMEOUT_S,
+    STARTUP_CLEAN_DOWNLOADS,
+)
 
 app = Flask(__name__)
+app.config.update(
+    SECRET_KEY=APP_SECRET_KEY,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+)
 
-# Base config
-DOWNLOAD_FOLDER = 'downloads'
-if not os.path.exists(DOWNLOAD_FOLDER):
-    os.makedirs(DOWNLOAD_FOLDER)
+os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+
+
+def _safe_redirect_target(target):
+    if not target or not target.startswith('/'):
+        return None
+    if target.startswith('//'):
+        return None
+    return target
+
+
+def _unauthorized_response():
+    if request.path == '/start-download':
+        return jsonify({'error': 'Sessão expirada. Faça login novamente.'}), 401
+    if request.path.startswith('/stream/') or request.path.startswith('/download-file/'):
+        return Response('Unauthorized', status=401)
+
+    next_url = request.full_path.rstrip('?') if request.query_string else request.path
+    return redirect(url_for('login', next=next_url))
+
+
+def login_required(view):
+    @wraps(view)
+    def wrapped_view(*args, **kwargs):
+        if not session.get('authenticated'):
+            return _unauthorized_response()
+        return view(*args, **kwargs)
+
+    return wrapped_view
 
 def cleanup_downloads_folder():
     """Remove all files and folders from downloads directory"""
@@ -27,8 +75,8 @@ def cleanup_downloads_folder():
     except Exception as e:
         print(f"Erro ao limpar pasta downloads: {e}")
 
-# Cleanup downloads folder on startup
-cleanup_downloads_folder()
+if STARTUP_CLEAN_DOWNLOADS:
+    cleanup_downloads_folder()
 
 # Store for SSE messages per session
 message_queues = {}
@@ -37,7 +85,7 @@ download_results = {}
 def cleanup_abandoned_sessions():
     """Clean up sessions that were never downloaded after 30 minutes"""
     while True:
-        time.sleep(300)  # Check every 5 minutes
+        time.sleep(SESSION_CLEANUP_INTERVAL_S)
         current_time = time.time()
         
         sessions_to_remove = []
@@ -45,7 +93,7 @@ def cleanup_abandoned_sessions():
             if result.get('status') == 'complete' and result.get('created_at'):
                 age = current_time - result['created_at']
                 # Remove if older than 30 minutes
-                if age > 1800:
+                if age > SESSION_MAX_AGE_S:
                     zip_path = result.get('zip_path')
                     if zip_path and os.path.exists(zip_path):
                         try:
@@ -67,10 +115,39 @@ cleanup_thread = threading.Thread(target=cleanup_abandoned_sessions, daemon=True
 cleanup_thread.start()
 
 @app.route('/')
+@login_required
 def index():
     return render_template('index.html')
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if session.get('authenticated'):
+        return redirect(url_for('index'))
+
+    error = None
+    if request.method == 'POST':
+        username = (request.form.get('username') or '').strip()
+        password = request.form.get('password') or ''
+
+        if compare_digest(username, LOGIN_USERNAME) and compare_digest(password, LOGIN_PASSWORD):
+            session.clear()
+            session['authenticated'] = True
+            session['username'] = username
+            next_url = _safe_redirect_target(request.form.get('next') or request.args.get('next'))
+            return redirect(next_url or url_for('index'))
+
+        error = 'Login ou senha incorretos.'
+
+    return render_template('login.html', error=error)
+
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
 @app.route('/start-download', methods=['POST'])
+@login_required
 def start_download():
     """Start download process and return session ID for SSE"""
     data = request.get_json()
@@ -145,6 +222,7 @@ def process_download(session_id, url):
             pass
 
 @app.route('/stream/<session_id>')
+@login_required
 def stream(session_id):
     """SSE endpoint for log streaming"""
     def generate():
@@ -157,7 +235,7 @@ def stream(session_id):
         while True:
             try:
                 # Wait for message with timeout
-                message = q.get(timeout=60)
+                message = q.get(timeout=SSE_MESSAGE_TIMEOUT_S)
                 yield f"data: {message}\n\n"
                 
                 # Check if download is complete
@@ -174,6 +252,7 @@ def stream(session_id):
     return Response(generate(), mimetype='text/event-stream')
 
 @app.route('/download-file/<session_id>')
+@login_required
 def download_file(session_id):
     """Download the generated ZIP file and clean up immediately"""
     result = download_results.get(session_id)
@@ -193,7 +272,7 @@ def download_file(session_id):
         
         # Clean up in background thread to avoid blocking the response
         def cleanup():
-            time.sleep(1)  # Small delay to ensure file transfer completes
+            time.sleep(DOWNLOAD_CLEANUP_DELAY_S)
             try:
                 if os.path.exists(zip_path):
                     os.remove(zip_path)
@@ -217,7 +296,10 @@ def download_file(session_id):
 if __name__ == '__main__':
     # Development server
     # use_reloader=False evita cache de módulos Python
-    app.run(debug=True, port=5001, threaded=True, use_reloader=False)
-else:
-    # Production server (Gunicorn)
-    pass
+    app.run(
+        host=APP_HOST,
+        debug=APP_DEBUG,
+        port=APP_PORT,
+        threaded=APP_THREADED,
+        use_reloader=False,
+    )

@@ -1,5 +1,11 @@
 # 🚂 Deploy no Railway
 
+## Stack Atual
+
+- O container usa `python:3.11-slim-bookworm` com `uv`.
+- As dependências são instaladas com `uv sync --frozen` a partir de `pyproject.toml` + `uv.lock`.
+- A lista completa de variáveis suportadas está em `.env.example`.
+
 ## Vantagens do Railway:
 - ✅ 8GB RAM (vs 512MB do Render Starter)
 - ✅ $5/mês (vs $7/mês do Render)
@@ -38,7 +44,10 @@ Não precisa configurar nada, mas se quiser otimizar:
 3. Adicione (opcional):
    ```
    PORT=8080
-   PLAYWRIGHT_BROWSERS_PATH=/app/.cache
+   PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
+   DM_GUNICORN_WORKERS=1
+   DM_GUNICORN_THREADS=2
+   DM_GUNICORN_TIMEOUT=300
    ```
 
 ---
@@ -51,7 +60,7 @@ Não precisa configurar nada, mas se quiser otimizar:
 Você deve ver:
 ```
 ==> Building Dockerfile
-==> Pulling mcr.microsoft.com/playwright/python:v1.41.0-jammy
+==> Running uv sync --frozen
 ==> Build successful
 ==> Starting service
 ==> Service is live
@@ -159,7 +168,8 @@ Railway cobra por uso:
 
 ### Deploy falhou?
 - Verifique logs em "Deployments"
-- Dockerfile está correto? (deve estar)
+- O repositório contém `uv.lock`? Ele é obrigatório para o build congelado
+- O Dockerfile executou `uv run playwright install --with-deps chromium`?
 
 ### Site não carrega?
 - Verifique se o serviço está "Running" (bolinha verde)

@@ -1,1 +1,1 @@
-web: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 300
+web: bash -lc 'if [ -f .env ]; then set -a && . ./.env && set +a; fi; uv run gunicorn app:app --bind ${DM_GUNICORN_BIND_HOST:-0.0.0.0}:${PORT:-8080} --workers ${DM_GUNICORN_WORKERS:-1} --threads ${DM_GUNICORN_THREADS:-2} --timeout ${DM_GUNICORN_TIMEOUT:-300} --worker-class ${DM_GUNICORN_WORKER_CLASS:-gthread}'

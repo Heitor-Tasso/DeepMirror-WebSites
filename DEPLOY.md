@@ -1,5 +1,11 @@
 # 🚀 Deploy no Render
 
+## Stack Atual
+
+- O deploy usa `pyproject.toml` + `uv.lock` como fonte única de dependências.
+- O `Dockerfile` instala dependências com `uv sync --frozen`.
+- O runtime lê variáveis de ambiente compatíveis com `.env.example`.
+
 ## Opção Recomendada: Render.com
 
 ### Passo a Passo Completo:
@@ -34,6 +40,7 @@ git push -u origin main
      Environment: Docker
      ```
    - Não precisa configurar Build/Start Command (o Dockerfile já tem isso)
+   - Garanta que o arquivo `uv.lock` esteja versionado no repositório
 
 4. **Plano**: 
    - Selecione o plano **Starter** ($7/mês)
@@ -71,8 +78,22 @@ git push
 O Render automaticamente:
 1. Detecta o push
 2. Rebuilda a aplicação
-3. Faz deploy automático
+3. Executa `uv sync --frozen` dentro do container
 4. Atualiza o site em produção
+
+### Variáveis de Ambiente Recomendadas
+
+Defina no Render:
+
+```dotenv
+PORT=8080
+PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
+DM_GUNICORN_WORKERS=1
+DM_GUNICORN_THREADS=2
+DM_GUNICORN_TIMEOUT=300
+```
+
+As demais variáveis opcionais estão documentadas em `.env.example`.
 
 ### Monitoramento
 
@@ -107,7 +128,7 @@ O Render automaticamente:
 - Aumente o plano no Render (precisa de pelo menos 512MB RAM)
 
 ### Erro: "Playwright/Chromium não encontrado"
-- Verifique se o build command inclui: `playwright install --with-deps chromium`
+- Verifique se o build do Docker executou: `uv run playwright install --with-deps chromium`
 
 ### Deploy não acontece automaticamente
 - Vá em Settings → GitHub e verifique se "Auto-Deploy" está ativado na branch `main`
