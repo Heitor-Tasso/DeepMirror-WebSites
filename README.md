@@ -20,7 +20,7 @@
 ### Processamento Inteligente
 - ✂️ **Remoção cirúrgica**: Remove apenas tracking/analytics, preserva frameworks (Next.js, etc)
 - 🔐 **Integrity fix**: Remove atributos `integrity`/`crossorigin` que quebram offline
-- 🎯 **Basename rewriting**: Substitui URLs relativas em CSS inline (`url("file.svg")` → `url("/assets/path/file.svg")`)
+- 🎯 **Basename rewriting**: Substitui URLs relativas em CSS inline (`url("file.svg")` -> `url("/assets/path/file.svg")`)
 - 🌐 **URL decode**: Nomes de arquivo com `%2C`, `%20` decodificados corretamente
 - 🧠 **Baseline inteligente**: Detecta automaticamente se deve usar o HTML estático original ou o DOM hidratado capturado pelo Playwright
 - 🎠 **Runtime cleanup**: Remove artefatos de sliders/carrosséis (Swiper, Keen, Splide) que causam duplicação offline

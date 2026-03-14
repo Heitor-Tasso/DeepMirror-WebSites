@@ -207,15 +207,15 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 ### Fixed - Correção: CSS Integrity + Basenames Relativos + URL Decode ✅
 
 - **Novos problemas identificados** (após teste do usuário - layout quebrado):
-  1. **CSS bloqueado**: Atributo `integrity` fazia browser rejeitar CSS principal offline → layout quebrado
-  2. **Basenames relativos**: CSS inline tinha `url("67e2c...svg")` sem `assets/` → 404 para SVGs
-  3. **URL encoding**: Arquivo salvo como `MonaSans_wdth%2Cwght.woff2` (com `%2C`) não era servido pelo http.server → 404 para font
+  1. **CSS bloqueado**: Atributo `integrity` fazia browser rejeitar CSS principal offline -> layout quebrado
+  2. **Basenames relativos**: CSS inline tinha `url("67e2c...svg")` sem `assets/` -> 404 para SVGs
+  3. **URL encoding**: Arquivo salvo como `MonaSans_wdth%2Cwght.woff2` (com `%2C`) não era servido pelo http.server -> 404 para font
 
 - **Soluções implementadas**:
   - **Remover integrity de CSS** (`post_process.py`): Remove `integrity`, `crossorigin`, `nonce` de `<link rel="stylesheet">`
   - **Processar HTML final** (`post_process.py:52`): Chama `_rewrite_basenames_in_content()` no HTML antes de salvar
-  - **Substituir basenames no HTML** (`post_process.py`): Método dedicado para HTML inline - substitui `url("basename.svg")` → `url("/assets/path/basename.svg")`
-  - **URL decode em filenames** (`network.py:155`): Usa `urllib.parse.unquote()` para decodificar `%2C` → `,` antes de salvar arquivo
+  - **Substituir basenames no HTML** (`post_process.py`): Método dedicado para HTML inline - substitui `url("basename.svg")` -> `url("/assets/path/basename.svg")`
+  - **URL decode em filenames** (`network.py:155`): Usa `urllib.parse.unquote()` para decodificar `%2C` -> `,` antes de salvar arquivo
 
 - **Validação completa**:
   - ✅ CSS carrega sem erro de integrity
@@ -244,16 +244,16 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 - **Solução implementada** (`post_process.py`):
   - **Rewrite recursivo**: Mudado de `os.listdir()` para `os.walk()` - processa TODOS arquivos em subpastas
   - **Substituição de CDN**: Adicionados padrões para substituir base URLs de CDNs externos:
-    - `"https://lando.itsoffbrand.io/"` → `"/assets/"`
-    - `"lando.itsoffbrand.io/"` → `"assets/"`
-    - `"https://cdn.prod.website-files.com/"` → `"/assets/"`
+    - `"https://lando.itsoffbrand.io/"` -> `"/assets/"`
+    - `"lando.itsoffbrand.io/"` -> `"assets/"`
+    - `"https://cdn.prod.website-files.com/"` -> `"/assets/"`
   - **Resultado**: JavaScript reescrito com `var vQ="/assets/gl"` em vez do CDN
 
 - **Validação completa**:
   - ✅ 118 recursos capturados (antes: 118, mantido)
   - ✅ 3 arquivos JS reescritos (antes: 1 - agora processa subpastas)
   - ✅ JavaScript NÃO contém mais referências ao CDN externo
-  - ✅ Base path reescrito: `"https://lando.itsoffbrand.io/gl"` → `"/assets/gl"`
+  - ✅ Base path reescrito: `"https://lando.itsoffbrand.io/gl"` -> `"/assets/gl"`
   - ✅ Teste local: 0 erros 403, 0 erros 404 para recursos WebGL
   - ✅ Estrutura preservada: `assets/gl/textures/head/webp/diffuse.webp`
 
@@ -321,7 +321,7 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 - Adicionada classificação automática de recursos por tipo (image, script, css, font, media, other)
 - Implementado log detalhado de recursos capturados por categoria com emojis
 - Melhorado filtro de tracking domains (aplicado no interceptor antes de salvar)
-- Fluxo de download estendido: scroll → interações → wait → captura
+- Fluxo de download estendido: scroll -> interações -> wait -> captura
 - **Validado:** Sistema funciona com melhorias, logs mais informativos
 
 ### Changed - Fase 1: Estrutura + Migração ✅

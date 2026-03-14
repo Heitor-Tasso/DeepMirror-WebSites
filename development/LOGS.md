@@ -17,6 +17,35 @@
 
 ```
 
+> revolut.com
+
+- Console Python:
+```
+Nenhum
+```
+
+- Console Web:
+```
+(index):658 [Fetch Interceptor] Installed with 160 mappings
+(index):659 [Fetch Interceptor] Basename index: 160 files
+(index):1281 Unchecked runtime.lastError: The message port closed before a response was received.
+TypeError: Cannot read properties of null (reading 'textContent')
+    at V (main-7d28280bf284e342.js:1:36880)
+    at 81479 (main-7d28280bf284e342.js:1:90172)
+    at c (webpack-6ebc2abff1db8481.js:1:485)
+    at main-7d28280bf284e342.js:1:133170
+    at c.O (webpack-6ebc2abff1db8481.js:1:898)
+    at main-7d28280bf284e342.js:1:133191
+    at a (webpack-6ebc2abff1db8481.js:1:10034)
+    at main-7d28280bf284e342.js:1:393
+(index):1 The resource https://assets.revolut.com/published-assets-v3/cc36007f-22dc-4ad1-8c2a-9858b2545d6d/0c00ad8a-14b6-4925-8884-0277b413e7f7.png was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.
+```
+
+- Outras Observações:
+```
+O site tem uma animação que os 3 cards vão aparecendo e saindo da janela do HERO enquanto desce a página, mas no offline não teve nenhum animação.
+```
+
 
 > palmer-dinnerware.com
 
@@ -35,7 +64,7 @@
 (índice):659 [Fetch Interceptor] Basename index: 284 files
 SplitText.min.js:11 SplitText called before fonts loaded
 
-# Problema: srcset com vírgula no nome do arquivo (ex: "23,5") → o browser tenta parsear
+# Problema: srcset com vírgula no nome do arquivo (ex: "23,5") -> o browser tenta parsear
 # a vírgula como separador de descriptor, resultado: "Dropped srcset candidate" repetido
 # por imagem (até 14x para o mesmo asset). Exemplo representativo:
 Failed parsing 'srcset' attribute value since it has an unknown descriptor.

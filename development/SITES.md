@@ -14,6 +14,7 @@ Registro de sites usados para validar o DeepMirror-WebSites.
 ## ⚠️ Com Bugs Conhecidos
 - [palmer-dinnerware.com](https://www.palmer-dinnerware.com/)
 - [activetheory.net](https://activetheory.net/)
+- [revolut.com](https://www.revolut.com/pt-BR/)
 
 ### site.com
 - **URL:** site_url

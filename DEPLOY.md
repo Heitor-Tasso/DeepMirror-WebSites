@@ -28,7 +28,7 @@ git push -u origin main
 1. **Criar conta**: Acesse [render.com](https://render.com) e faça login com GitHub
 
 2. **Novo Web Service**:
-   - Clique em "New +" → "Web Service"
+   - Clique em "New +" -> "Web Service"
    - Conecte seu repositório GitHub
    - Selecione o repositório `website-downloader`
 
@@ -50,7 +50,7 @@ git push -u origin main
 
 #### 3. Configurar Domínio Customizado
 
-1. No dashboard do Render, vá em **Settings** → **Custom Domain**
+1. No dashboard do Render, vá em **Settings** -> **Custom Domain**
 2. Adicione: `sd.asimov.academy`
 3. Render vai mostrar um registro CNAME:
    ```
@@ -97,7 +97,7 @@ As demais variáveis opcionais estão documentadas em `.env.example`.
 
 ### Monitoramento
 
-- **Logs**: Dashboard do Render → Logs
+- **Logs**: Dashboard do Render -> Logs
 - **Status**: Dashboard mostra se está rodando
 - **Builds**: Veja histórico de deploys
 
@@ -131,7 +131,7 @@ As demais variáveis opcionais estão documentadas em `.env.example`.
 - Verifique se o build do Docker executou: `uv run playwright install --with-deps chromium`
 
 ### Deploy não acontece automaticamente
-- Vá em Settings → GitHub e verifique se "Auto-Deploy" está ativado na branch `main`
+- Vá em Settings -> GitHub e verifique se "Auto-Deploy" está ativado na branch `main`
 
 ### Domínio não funciona
 - Verifique se adicionou o CNAME correto no seu DNS

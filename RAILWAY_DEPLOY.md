@@ -55,7 +55,7 @@ Não precisa configurar nada, mas se quiser otimizar:
 ### 4️⃣ Aguardar Deploy
 
 - O build vai levar ~3-5 minutos
-- Acompanhe em **"Deployments"** → **"View Logs"**
+- Acompanhe em **"Deployments"** -> **"View Logs"**
 
 Você deve ver:
 ```
@@ -81,7 +81,7 @@ Você deve ver:
 
 #### A) No Railway:
 
-1. Em **"Settings"** → **"Networking"**
+1. Em **"Settings"** -> **"Networking"**
 2. Clique em **"Custom Domain"**
 3. Digite: `sd.asimov.academy`
 4. Railway vai mostrar um registro CNAME:
