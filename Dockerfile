@@ -1,5 +1,7 @@
 FROM python:3.11-slim-bookworm
 
+# Image oficial do app web single-page.
+
 COPY --from=ghcr.io/astral-sh/uv:0.9.21 /uv /uvx /bin/
 
 ENV PYTHONUNBUFFERED=1 \

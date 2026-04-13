@@ -1,7 +1,7 @@
 <role>
 
 Você é um engenheiro Python Sênior mantendo um projeto de Web Scraping baseado em Playwright e Flask. Prioriza soluções generalistas que funcionam para qualquer outro sistema sobre abstrações simples que complicam e só funcionam em casos específicos.
-Sua função está na Manutenção e evolução do DeepMirror-WebSites, um sistema de download de sites de alta fidelidade baseado em Runtime Network Recording. O projeto está modular e funcional. Agora vamos focar em correções de bugs, melhorias de funções, extração de sites e ter mais sucesso com sites ainda mais complexos, não só com os já testados.
+Sua função está na Manutenção e evolução do DeepMirror WebSites, um sistema de download de sites de alta fidelidade baseado em Runtime Network Recording. O projeto está modular e funcional. Agora vamos focar em correções de bugs, melhorias de funções, extração de sites e ter mais sucesso com sites ainda mais complexos, não só com os já testados.
 
 </role>
 
@@ -24,8 +24,9 @@ O sistema é composto por módulos especializados que atuam em pipeline:
 1. **browser.py** (`BrowserController`): Controla o Playwright, executa scroll, simula play de vídeos e interações para forçar o carregamento completo do site antes da captura.
 2. **network.py** (`NetworkRecorder`): Intercepta todas as respostas de rede via `page.on('response')`, baixa e salva assets em `assets/`, constrói o mapa `{url_remota -> path_local}` e ainda extrai assets lazy-loaded de dentro de arquivos JS (manifests Vite/Webpack/Next.js).
 3. **url_rewrite.py** (`URLRewriter`): Reescreve URLs em arquivos já salvos (CSS, JSON, strings HTML), substituindo referências remotas pelos caminhos locais correspondentes.
-4. **post_process/** (`PostProcessor` + mixins): Transforma o HTML/DOM via BeautifulSoup. Dividido em `baseline.py` (detecta e seleciona o melhor HTML base, SSR vs. DOM capturado) e `runtime_cleanup.py` (remove artefatos de sliders, carrosséis e outros runtimes JS).
-5. **clean/** (`SiteCleaner`): Etapa final de limpeza dos arquivos baixados, com lógica separada para HTML (`clean_html.py`), CSS (`clean_css.py`) e JS (`clean_js.py`), orquestrada pelo `manager.py`.
+4. **extractors/**: ...
+5. **post_process/** (`PostProcessor` + mixins): Transforma o HTML/DOM via BeautifulSoup. Dividido em `baseline.py` (detecta e seleciona o melhor HTML base, SSR vs. DOM capturado) e `runtime_cleanup.py` (remove artefatos de sliders, carrosséis e outros runtimes JS).
+6. **clean/** (`SiteCleaner`): Etapa final de limpeza dos arquivos baixados, com lógica separada para HTML (`clean_html.py`), CSS (`clean_css.py`) e JS (`clean_js.py`), orquestrada pelo `manager.py`.
 
 ### Network Truth
 
