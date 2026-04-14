@@ -75,7 +75,10 @@ def _load_resource_map(clean_dir: Path, log=None) -> tuple[dict, dict]:
         normalized_local = browser_path.lstrip('/')
         remote_exact[original_url] = browser_path
 
-        parsed = urlsplit(original_url)
+        try:
+            parsed = urlsplit(original_url)
+        except ValueError:
+            continue
         if not parsed.netloc:
             continue
 
@@ -123,7 +126,10 @@ def _candidate_remote_refs(ref: str) -> list[str]:
             candidates.append(value)
 
     add(ref)
-    parsed = urlsplit(ref)
+    try:
+        parsed = urlsplit(ref)
+    except ValueError:
+        return candidates
     if parsed.fragment:
         add(urlunsplit((parsed.scheme, parsed.netloc, parsed.path, parsed.query, '')))
     if parsed.query:
@@ -152,6 +158,8 @@ def _lookup_remote(ref: str, remote_exact: dict) -> str | None:
 def _remap(ref: str, exact: dict, by_basename: dict, remote_exact: dict | None = None) -> str:
     """Translate a single path reference. Returns original if no match found."""
     if not ref:
+        return ref
+    if '${' in ref:
         return ref
 
     # Strip query/fragment for lookup (reattach after)

@@ -194,6 +194,40 @@ class NetworkRecorder:
         """Enable or disable runtime network capture without detaching listeners."""
         self.recording_enabled = bool(enabled)
 
+    def _resolve_url(self, url, base_url=None, context='resource'):
+        """
+        Resolve a candidate URL without letting malformed bracketed hosts abort the run.
+
+        Some sites leak template placeholders such as `[${n.value}]` into asset URLs.
+        Python's stdlib url parser raises ValueError for those netlocs, so we treat
+        them as failed resources and keep the download alive.
+        """
+        if not url:
+            return None
+
+        candidate = str(url).strip()
+        if not candidate or candidate.startswith(('data:', 'blob:', '#', 'javascript:', 'mailto:', 'tel:')):
+            return None
+
+        base = base_url if base_url is not None else self.base_url
+        if base and not base.endswith('/'):
+            base = base + '/'
+
+        try:
+            resolved = urljoin(base, candidate) if base else candidate
+            parsed = urlparse(resolved)
+        except ValueError as exc:
+            self.failed_resources.append((candidate, f'invalid URL ({context}): {str(exc)[:80]}'))
+            self.log(f"   Ignorando URL inválida em {context}: {candidate[:100]}")
+            return None
+
+        if parsed.scheme and parsed.scheme not in {'http', 'https'}:
+            return None
+        if not parsed.netloc:
+            return None
+
+        return resolved
+
     def get_document_html(self, url=None):
         """
         Return the captured HTML body for the main document when available.
@@ -252,7 +286,10 @@ class NetworkRecorder:
             for candidate in candidates:
                 if not candidate:
                     continue
-                parsed = urlparse(candidate)
+                try:
+                    parsed = urlparse(candidate)
+                except ValueError:
+                    continue
                 if parsed.scheme not in {'http', 'https'}:
                     continue
 
@@ -912,7 +949,9 @@ class NetworkRecorder:
         if not url or url.startswith(('data:', 'blob:', '#')):
             return url
 
-        url = urljoin(self.base_url.rstrip('/') + '/', url)
+        url = self._resolve_url(url, context='fallback')
+        if not url:
+            return None
 
         if url in self.resource_cache:
             return self.resource_cache[url]
@@ -981,7 +1020,9 @@ class NetworkRecorder:
             base_url = base_url + '/'
 
         # Make absolute URL
-        abs_url = urljoin(base_url, url)
+        abs_url = self._resolve_url(url, base_url=base_url, context='resource lookup')
+        if not abs_url:
+            return url
         parsed_abs = urlparse(abs_url)
         lookup_urls = [abs_url]
         if parsed_abs.fragment:
@@ -1058,7 +1099,9 @@ class NetworkRecorder:
         for url in urls:
             if not url:
                 continue
-            normalized_url = urljoin(self.base_url.rstrip('/') + '/', url)
+            normalized_url = self._resolve_url(url, context='fallback queue')
+            if not normalized_url:
+                continue
             if normalized_url in seen_urls:
                 continue
             seen_urls.add(normalized_url)

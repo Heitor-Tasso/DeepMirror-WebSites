@@ -113,6 +113,30 @@ def _iter_entry_html_files(clean_dir: Path):
         yield html_file
 
 
+def _iter_live_stylesheet_links(soup: BeautifulSoup):
+    """
+    Yield only stylesheet <link> tags that are still live.
+
+    Malformed heads can cause BeautifulSoup to nest link tags. When one parent
+    link gets decomposed, nested siblings in a precomputed list become dead tags
+    whose attrs are None, and calling .get() on them raises AttributeError.
+    """
+    for link in list(soup.find_all('link')):
+        if getattr(link, 'name', None) != 'link':
+            continue
+        if getattr(link, 'attrs', None) is None:
+            continue
+
+        rel = link.get('rel', []) or []
+        if isinstance(rel, str):
+            rel = [rel]
+        rel = {value.lower() for value in rel}
+        if 'stylesheet' not in rel:
+            continue
+
+        yield link
+
+
 def _resolve_local_stylesheet(href: str, source_file: Path, clean_dir: Path) -> Path | None:
     target = href.split('?', 1)[0].split('#', 1)[0].strip()
     if not target:
@@ -174,14 +198,7 @@ def _collect_html_stylesheet_refs(clean_dir: Path, css_dir: Path) -> list[Path]:
             continue
 
         soup = BeautifulSoup(content, 'html.parser')
-        for link in soup.find_all('link'):
-            rel = link.get('rel', []) or []
-            if isinstance(rel, str):
-                rel = [rel]
-            rel = {value.lower() for value in rel}
-            if 'stylesheet' not in rel:
-                continue
-
+        for link in _iter_live_stylesheet_links(soup):
             href = (link.get('href') or '').strip()
             css_file = _resolve_local_stylesheet(href, html_file, clean_dir)
             if css_file is None:
@@ -773,13 +790,7 @@ def repair_css_references(clean_dir: Path, plan: dict, log=None) -> int:
             soup = BeautifulSoup(content, 'html.parser')
             changed = False
 
-            for link in list(soup.find_all('link')):
-                rel = link.get('rel', []) or []
-                if isinstance(rel, str):
-                    rel = [rel]
-                rel = {value.lower() for value in rel}
-                if 'stylesheet' not in rel:
-                    continue
+            for link in _iter_live_stylesheet_links(soup):
                 name = Path(link.get('href', '')).name
                 if name in source_names or name in written_names:
                     link.decompose()
